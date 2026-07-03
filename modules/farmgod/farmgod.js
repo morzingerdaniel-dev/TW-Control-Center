@@ -1323,10 +1323,10 @@ el.querySelector('#farmgod-bot-ok').addEventListener('click', () => {
   // =======================
   const FARMGOD_PACING_KEY = 'FarmGod_pacingStats';
 
-  const FARMGOD_CLICK_MIN_MS = 180;
-  const FARMGOD_CLICK_MAX_MS = 270;
+  const FARMGOD_CLICK_MIN_MS = 160;
+  const FARMGOD_CLICK_MAX_MS = 320;
 
-  const FARMGOD_MICRO_PAUSE_AFTER_MIN_MS = 5000;
+  const FARMGOD_MICRO_PAUSE_AFTER_MIN_MS = 10000;
   const FARMGOD_MICRO_PAUSE_AFTER_MAX_MS = 20000;
 
   const FARMGOD_MICRO_PAUSE_MIN_MS = 500;
