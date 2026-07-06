@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TWCC Angriffsplaner Test Phase 1
+// @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      1.0
-// @description  TWCC Angriffsplaner mit Live-Status und Auto-Close
+// @version      1.1
+// @description  TWCC Angriffsplaner mit TabManager-Unterstützung
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -419,7 +419,7 @@
 
         const targetParam = attack.targetId ? `&target=${encodeURIComponent(attack.targetId)}` : '';
         const url = `/game.php?village=${encodeURIComponent(villageId)}&screen=place${targetParam}&x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}`;
-        window.open(url, '_blank');
+        openManagedTab(attack.id, url);
     }
 
     function startNextPhase1() {
@@ -636,6 +636,44 @@
     }
 
 
+    function getTwccTabManager() {
+        try {
+            if (window.TWCC && window.TWCC.TabManager) return window.TWCC.TabManager;
+        } catch (e) {}
+
+        try {
+            if (window.opener && window.opener.TWCC && window.opener.TWCC.TabManager) {
+                return window.opener.TWCC.TabManager;
+            }
+        } catch (e) {}
+
+        return null;
+    }
+
+    function openManagedTab(id, url) {
+        const tm = getTwccTabManager();
+        if (tm && typeof tm.open === 'function') {
+            return tm.open(id, url);
+        }
+        return openManagedTab(attack.id, url);
+    }
+
+    function closeManagedTab(id) {
+        const tm = getTwccTabManager();
+        if (tm && typeof tm.close === 'function') {
+            return tm.close(id);
+        }
+
+        try {
+            window.close();
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+
+
     function isAutoCloseEnabled() {
         return localStorage.getItem(AUTO_CLOSE_KEY) !== '0';
     }
@@ -675,11 +713,7 @@
         localStorage.removeItem(CLOSE_MARKER_KEY);
 
         setTimeout(() => {
-            try {
-                window.close();
-            } catch (e) {
-                console.warn('[TWCC Angriffsplaner] window.close nicht erlaubt', e);
-            }
+            closeManagedTab(marker.id);
         }, 600);
     }
 
@@ -838,7 +872,7 @@
 
                 <div style="background:#fff8e8;border:1px solid #c7a76b;border-radius:6px;padding:8px;margin-bottom:8px;">
                     <b>Vorlagen-Mapping:</b>
-                    Ramme/Katapult → volle off · AG → AG · Axt → Fake
+                    Ramme/Katapult → volle off · AG → AG1 · Axt → Fake
                 </div>
 
                 <textarea id="twcc-dsu-text" style="width:100%;height:170px;" placeholder="DS-Ultimate Copy-Liste hier einfügen..."></textarea>
@@ -1284,7 +1318,7 @@
                 const before = getCurrentServerMs();
                 const restAtSubmit = sendServerMs - before;
                 const activeBeforeSubmit = loadJson(ACTIVE_KEY, null);
-                if (activeBeforeSubmit && isAutoCloseEnabled() && activeBeforeSubmit.openedByExecutor) {
+                if (activeBeforeSubmit && isAutoCloseEnabled() && activeBeforeSubmit.openedByAngriffsplaner) {
                     setCloseMarker(activeBeforeSubmit, 'auto-submit');
                 }
 
@@ -1327,9 +1361,7 @@
                         localStorage.removeItem(ACTIVE_KEY);
                         setTimeout(() => queueTick('auto-submit'), 900);
                         if (shouldClose) {
-                            setTimeout(() => {
-                                try { window.close(); } catch (e) {}
-                            }, 1500);
+                            setTimeout(() => closeManagedTab(active.id), 300);
                         }
                     } else {
                         saveJson(ACTIVE_KEY, active);
@@ -1474,9 +1506,7 @@
                     localStorage.removeItem(ACTIVE_KEY);
                     setTimeout(() => queueTick('manual-submit'), 900);
                     if (shouldClose) {
-                        setTimeout(() => {
-                            try { window.close(); } catch (e) {}
-                        }, 1200);
+                        setTimeout(() => closeManagedTab(active.id), 300);
                     }
                 }
                 toast(ok ? 'Manuell gesendet' : 'Manuelles Abschicken fehlgeschlagen');
