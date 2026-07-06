@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      2.1
-// @description  TWCC Angriffsplaner v2.1 Done-Signal Fix
+// @version      2.2
+// @description  TWCC Angriffsplaner v2.2 Post-Submit-Done Marker
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -27,6 +27,7 @@
     const TIMING_CALIB_LIMIT_KEY = 'TWCC_DSU_TIMING_CALIB_LIMIT';
     const AUTO_CLOSE_KEY = 'TWCC_DSU_AUTO_CLOSE_TAB';
     const CLOSE_MARKER_KEY = 'TWCC_DSU_CLOSE_MARKER';
+    const SUBMIT_PENDING_KEY = 'TWCC_DSU_SUBMIT_PENDING_DONE';
 
     const TEMPLATE_MAP = {
         ramme: 'volle off',
@@ -1396,6 +1397,63 @@
         );
     }
 
+
+    function markSubmitPending(active, reason) {
+        if (!active || !active.id) return;
+
+        const marker = {
+            id: active.id,
+            tabId: normalizeTabId(active.id),
+            villageId: active.villageId || getParams().get('village') || '',
+            from: active.from,
+            to: active.to,
+            reason: reason || 'submit',
+            at: Date.now()
+        };
+
+        try {
+            localStorage.setItem(SUBMIT_PENDING_KEY, JSON.stringify(marker));
+            console.log('[TWCC Angriffsplaner v2.2] Submit-Pending gesetzt', marker);
+        } catch (e) {
+            console.warn('[TWCC Angriffsplaner v2.2] Submit-Pending Fehler', e);
+        }
+    }
+
+    function checkSubmitPendingDone() {
+        let marker = null;
+        try {
+            marker = JSON.parse(localStorage.getItem(SUBMIT_PENDING_KEY) || 'null');
+        } catch (e) {}
+
+        if (!marker || !marker.id) return;
+
+        const fresh = Date.now() - Number(marker.at || 0) < 60000;
+        if (!fresh) {
+            localStorage.removeItem(SUBMIT_PENDING_KEY);
+            return;
+        }
+
+        const currentVillage = getParams().get('village') || '';
+        if (marker.villageId && currentVillage && marker.villageId !== currentVillage) {
+            return;
+        }
+
+        const active = loadJson(ACTIVE_KEY, null) || {
+            id: marker.id,
+            villageId: marker.villageId,
+            from: marker.from,
+            to: marker.to
+        };
+
+        console.log('[TWCC Angriffsplaner v2.2] Post-Submit erkannt -> attackDone', marker, active);
+
+        updatePlanItem(marker.id, { status: 'submitted_test', submitAt: Date.now() });
+        localStorage.removeItem(SUBMIT_PENDING_KEY);
+
+        sendAttackDoneEvent(active, marker.reason || 'post-submit');
+    }
+
+
     function submitConfirm(btn) {
         if (!btn) return false;
 
@@ -1448,6 +1506,8 @@
                 const activeBeforeSubmit = loadJson(ACTIVE_KEY, null);
                 // Kein CloseMarker vor Submit setzen:
                 // Der Tab darf erst schließen, nachdem die Weiterverarbeitung gestartet wurde.
+                const activeBeforeSubmit = loadJson(ACTIVE_KEY, null);
+                markSubmitPending(activeBeforeSubmit, 'auto-submit');
                 const ok = submitConfirm(btn);
                 const after = getCurrentServerMs();
 
@@ -1740,6 +1800,7 @@
     function init() {
         maybeAutoCloseThisTab();
         installMainQueueOwner();
+        checkSubmitPendingDone();
         addLauncher();
 
         if (getScreen() === 'overview_villages') {
@@ -1749,6 +1810,7 @@
             }, 1200);
         }
 
+        setTimeout(checkSubmitPendingDone, 800);
         setTimeout(phase1AutoOnPlace, 700);
         setTimeout(markConfirmPageIfActive, 1000);
         setTimeout(() => {
