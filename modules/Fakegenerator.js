@@ -138,14 +138,13 @@
     const fgMode = fgParams.get('mode');
 
     if (fgScreen === 'place') {
-        console.info('[Fake Generator Local Controlled] Angriffs-Tab erkannt: Originalscript wird hier nicht gestartet.');
-        return;
+        console.info('[Fake Generator TWCC] Angriffs-Tab erkannt: Originalscript darf hier weiterarbeiten.');
     }
 
-    // Auf anderen Seiten außer overview_villages soll der Generator ebenfalls nicht starten.
-    // Die interne Weiterleitung des Originalscripts bleibt für overview_villages ohne combined erhalten.
-    if (fgScreen && fgScreen !== 'overview_villages') {
-        console.info('[Fake Generator Local Controlled] Keine Generator-Seite: Originalscript gestoppt.');
+    // Auf anderen Seiten außer overview_villages und place soll der Generator nicht starten.
+    // overview_villages erzeugt die Tabs, place führt die Folgeaktionen aus.
+    if (fgScreen && fgScreen !== 'overview_villages' && fgScreen !== 'place') {
+        console.info('[Fake Generator TWCC] Keine Generator-Seite: Originalscript gestoppt.');
         return;
     }
 
