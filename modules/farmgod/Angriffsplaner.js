@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.0.1
-// @description  Angriffsplaner V1 stabil mit Auto-Close Marker Fix
+// @version      1.0.2
+// @description  Angriffsplaner V1 stabil mit Auto-Close Queue-Fix
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -672,16 +672,33 @@
 
         if (!fresh || !isSameVillage) return;
 
-        console.log('[TWCC Angriffsplaner V1.0.1] Tab wird nach Senden geschlossen', marker);
+        console.log('[TWCC Angriffsplaner V1.0.2] Tab wird nach Senden geschlossen, Queue wird vorher fortgesetzt', marker);
         localStorage.removeItem(CLOSE_MARKER_KEY);
 
+        // Wichtig:
+        // Nach dem Submit lädt die Seite neu. Der Code nach submitConfirm() läuft nicht zuverlässig.
+        // Deshalb erledigt diese neue Seite hier den Status + Queue-Fortsetzung.
+        if (marker.id) {
+            updatePlanItem(marker.id, { status: 'submitted_test', submitAt: Date.now() });
+        }
+
+        localStorage.removeItem(ACTIVE_KEY);
+
+        if (isQueueRunning() && !isQueuePaused()) {
+            setTimeout(() => {
+                console.log('[TWCC Angriffsplaner V1.0.2] Queue weiter nach Auto-Close-Marker');
+                queueTick('post-submit-close-marker');
+            }, 900);
+        }
+
+        // Erst schließen, nachdem queueTick Zeit hatte, den nächsten Angriff zu öffnen.
         setTimeout(() => {
             try {
                 window.close();
             } catch (e) {
                 console.warn('[TWCC Angriffsplaner] window.close nicht erlaubt', e);
             }
-        }, 600);
+        }, 2600);
     }
 
 
