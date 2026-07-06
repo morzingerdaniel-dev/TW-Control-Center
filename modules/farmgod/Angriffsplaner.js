@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      1.1
-// @description  TWCC Angriffsplaner mit TabManager-Unterstützung
+// @version      1.2
+// @description  TWCC Angriffsplaner mit TabManager Close-Requests
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -660,17 +660,32 @@
 
     function closeManagedTab(id) {
         const tm = getTwccTabManager();
-        if (tm && typeof tm.close === 'function') {
-            return tm.close(id);
+
+        if (tm && typeof tm.requestClose === 'function') {
+            tm.requestClose(id, 'angriff-gesendet');
+        } else if (tm && typeof tm.close === 'function') {
+            tm.close(id);
+        } else {
+            try {
+                const payload = { id: String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_'), reason: 'angriff-gesendet', at: Date.now() };
+                localStorage.setItem('TWCC_TAB_CLOSE_REQUEST', JSON.stringify(payload));
+                localStorage.removeItem('TWCC_TAB_CLOSE_REQUEST');
+                if (window.BroadcastChannel) {
+                    const bc = new BroadcastChannel('TWCC_TAB_MANAGER');
+                    bc.postMessage({ type: 'close', payload });
+                    setTimeout(() => bc.close(), 300);
+                }
+            } catch (e) {}
         }
 
-        try {
-            window.close();
-            return true;
-        } catch (e) {
-            return false;
-        }
+        setTimeout(() => {
+            closeManagedTab(active.id)
+        }, 500);
+
+        return true;
     }
+
+
 
 
 
