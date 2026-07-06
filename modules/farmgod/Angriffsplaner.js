@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      1.3
-// @description  TWCC Angriffsplaner TabManager Bridge Fix
+// @version      1.4
+// @description  TWCC Angriffsplaner TabManager Queue-Fix
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -721,7 +721,7 @@
             } catch (e) {
                 console.warn('[TWCC Angriffsplaner] window.close fallback fehlgeschlagen', e);
             }
-        }, 700);
+        }, 1200);
 
         return true;
     }
@@ -1376,10 +1376,8 @@
                 const before = getCurrentServerMs();
                 const restAtSubmit = sendServerMs - before;
                 const activeBeforeSubmit = loadJson(ACTIVE_KEY, null);
-                if (activeBeforeSubmit && isAutoCloseEnabled() && activeBeforeSubmit.openedByAngriffsplaner) {
-                    setCloseMarker(activeBeforeSubmit, 'auto-submit');
-                }
-
+                // Kein CloseMarker vor Submit setzen:
+                // Der Tab darf erst schließen, nachdem die Weiterverarbeitung gestartet wurde.
                 const ok = submitConfirm(btn);
                 const after = getCurrentServerMs();
 
@@ -1417,9 +1415,9 @@
                     if (ok) {
                         const shouldClose = isAutoCloseEnabled() && active.openedByAngriffsplaner;
                         localStorage.removeItem(ACTIVE_KEY);
-                        setTimeout(() => queueTick('auto-submit'), 900);
+                        setTimeout(() => queueTick('auto-submit'), 500);
                         if (shouldClose) {
-                            setTimeout(() => closeManagedTab(active.id), 300);
+                            setTimeout(() => closeManagedTab(active.id), 2600);
                         }
                     } else {
                         saveJson(ACTIVE_KEY, active);
@@ -1554,17 +1552,16 @@
             document.getElementById('twcc-dsu-exec-manual').onclick = () => {
                 const btn = findConfirmButton();
                 const active = loadJson(ACTIVE_KEY, null);
-                if (active && isAutoCloseEnabled() && active.openedByAngriffsplaner) {
-                    setCloseMarker(active, 'manual-submit');
-                }
+                // Kein CloseMarker vor Submit setzen:
+                // Der Tab darf erst schließen, nachdem die Weiterverarbeitung gestartet wurde.
                 const ok = submitConfirm(btn);
                 if (ok && active?.id) {
                     updatePlanItem(active.id, { status: 'submitted_test', submitAt: Date.now() });
                     const shouldClose = isAutoCloseEnabled() && active.openedByAngriffsplaner;
                     localStorage.removeItem(ACTIVE_KEY);
-                    setTimeout(() => queueTick('manual-submit'), 900);
+                    setTimeout(() => queueTick('manual-submit'), 500);
                     if (shouldClose) {
-                        setTimeout(() => closeManagedTab(active.id), 300);
+                        setTimeout(() => closeManagedTab(active.id), 2600);
                     }
                 }
                 toast(ok ? 'Manuell gesendet' : 'Manuelles Abschicken fehlgeschlagen');
