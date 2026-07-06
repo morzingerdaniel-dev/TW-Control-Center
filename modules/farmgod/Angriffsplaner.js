@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      1.5
-// @description  TWCC Angriffsplaner MainWindow Queue + TabClose
+// @version      1.6
+// @description  TWCC Angriffsplaner SAFE Rollback - seriell ohne Auto-Close
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -697,6 +697,7 @@
             tm.close(cleanId);
         }
 
+        // Broadcast/localStorage immer zusätzlich senden, auch wenn ein TabManager gefunden wurde.
         try {
             const payload = { id: cleanId, reason: 'angriff-gesendet', at: Date.now() };
             localStorage.setItem('TWCC_TAB_CLOSE_REQUEST', JSON.stringify(payload));
@@ -712,6 +713,7 @@
             console.warn('[TWCC Angriffsplaner] CloseRequest Fehler', e);
         }
 
+        // Fallback: Tab versucht sich selbst zu schließen.
         setTimeout(() => {
             try {
                 console.log('[TWCC Angriffsplaner] window.close fallback');
@@ -719,83 +721,10 @@
             } catch (e) {
                 console.warn('[TWCC Angriffsplaner] window.close fallback fehlgeschlagen', e);
             }
-        }, 600);
+        }, 1200);
 
         return true;
     }
-
-    function requestMainQueueContinue(reason) {
-        const payload = {
-            type: 'continueQueue',
-            reason: reason || 'submit',
-            at: Date.now()
-        };
-
-        console.log('[TWCC Angriffsplaner] requestMainQueueContinue', payload);
-
-        try {
-            if (window.opener && !window.opener.closed) {
-                window.opener.postMessage({ source: 'TWCC_ANGRIFFSPLANER', payload }, '*');
-            }
-        } catch (e) {
-            console.warn('[TWCC Angriffsplaner] opener postMessage fehlgeschlagen', e);
-        }
-
-        try {
-            localStorage.setItem('TWCC_ANGRIFFSPLANER_QUEUE_CONTINUE', JSON.stringify(payload));
-            setTimeout(() => localStorage.removeItem('TWCC_ANGRIFFSPLANER_QUEUE_CONTINUE'), 50);
-        } catch (e) {}
-
-        try {
-            if (window.BroadcastChannel) {
-                const bc = new BroadcastChannel('TWCC_ANGRIFFSPLANER');
-                bc.postMessage(payload);
-                setTimeout(() => bc.close(), 300);
-            }
-        } catch (e) {}
-    }
-
-    function installMainQueueListener() {
-        if (window.__TWCC_ANGRIFFSPLANER_QUEUE_LISTENER__) return;
-        window.__TWCC_ANGRIFFSPLANER_QUEUE_LISTENER__ = true;
-
-        function handle(payload) {
-            if (!payload || payload.type !== 'continueQueue') return;
-            const fresh = Date.now() - Number(payload.at || 0) < 30000;
-            if (!fresh) return;
-
-            console.log('[TWCC Angriffsplaner] Hauptfenster führt Queue weiter', payload);
-
-            if (isQueueRunning() && !isQueuePaused()) {
-                setTimeout(() => queueTick('main-window-continue-' + (payload.reason || 'submit')), 250);
-            }
-        }
-
-        try {
-            window.addEventListener('message', function (event) {
-                if (!event.data || event.data.source !== 'TWCC_ANGRIFFSPLANER') return;
-                handle(event.data.payload);
-            });
-        } catch (e) {}
-
-        try {
-            window.addEventListener('storage', function (event) {
-                if (event.key !== 'TWCC_ANGRIFFSPLANER_QUEUE_CONTINUE' || !event.newValue) return;
-                try { handle(JSON.parse(event.newValue)); } catch (e) {}
-            });
-        } catch (e) {}
-
-        try {
-            if (window.BroadcastChannel) {
-                const bc = new BroadcastChannel('TWCC_ANGRIFFSPLANER');
-                bc.onmessage = function (event) {
-                    handle(event.data);
-                };
-            }
-        } catch (e) {}
-    }
-
-
 
 
 
@@ -804,7 +733,8 @@
 
 
     function isAutoCloseEnabled() {
-        return localStorage.getItem(AUTO_CLOSE_KEY) !== '0';
+        // SAFE v1.6: Auto-Close deaktiviert, bis TabManager mit harter Sperre neu gebaut ist.
+        return false;
     }
 
     function setAutoCloseEnabled(value) {
@@ -1486,9 +1416,9 @@
                     if (ok) {
                         const shouldClose = isAutoCloseEnabled() && active.openedByAngriffsplaner;
                         localStorage.removeItem(ACTIVE_KEY);
-                        requestMainQueueContinue('auto-submit');
+                        setTimeout(() => queueTick('auto-submit'), 500);
                         if (shouldClose) {
-                            setTimeout(() => closeManagedTab(active.id), 250);
+                            /* SAFE v1.6: Auto-Close deaktiviert */
                         }
                     } else {
                         saveJson(ACTIVE_KEY, active);
@@ -1597,7 +1527,7 @@
                         Limit:
                         <input id="twcc-dsu-calib-limit" type="number" style="width:70px;" value="300">
                         <label style="white-space:nowrap;"><input id="twcc-dsu-autocalib" type="checkbox" checked> Auto-Kalibrierung</label>
-                        <label style="white-space:nowrap;"><input id="twcc-dsu-autoclose" type="checkbox" checked> Tab nach Senden schließen</label>
+                        <label style="white-space:nowrap;opacity:.55;"><input id="twcc-dsu-autoclose" type="checkbox" disabled> Tab nach Senden schließen (deaktiviert)</label>
                         <button id="twcc-dsu-save-timing">Speichern</button>
                         <div style="margin-top:5px;font-size:11px;">Statistik: <span id="twcc-dsu-timing-stats">-</span></div>
                     </div>
@@ -1630,9 +1560,9 @@
                     updatePlanItem(active.id, { status: 'submitted_test', submitAt: Date.now() });
                     const shouldClose = isAutoCloseEnabled() && active.openedByAngriffsplaner;
                     localStorage.removeItem(ACTIVE_KEY);
-                    requestMainQueueContinue('manual-submit');
+                    setTimeout(() => queueTick('manual-submit'), 500);
                     if (shouldClose) {
-                        setTimeout(() => closeManagedTab(active.id), 250);
+                        /* SAFE v1.6: Auto-Close deaktiviert */
                     }
                 }
                 toast(ok ? 'Manuell gesendet' : 'Manuelles Abschicken fehlgeschlagen');
@@ -1736,7 +1666,6 @@
 
     function init() {
         maybeAutoCloseThisTab();
-        installMainQueueListener();
         addLauncher();
 
         if (getScreen() === 'overview_villages') {
