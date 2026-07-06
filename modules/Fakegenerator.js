@@ -3,7 +3,7 @@
 // @namespace    https://github.com/SaveBankDev/FakeGenerator
 // @version      2.3.7-local-controlled
 // @description  Lokale Tampermonkey-Version mit Aktivieren/Deaktivieren-Button und Tab-Sperre
-// @author       daniel
+// @author       daniel + local wrapper
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
 // @match        https://*.tribalwars.*/*game.php*
@@ -49,6 +49,93 @@
     function isThisTabAllowed() {
         const locked = getLockedTab();
         return !locked || locked === getTabId();
+    }
+
+    function runPlaceEnterAutomation() {
+        // Läuft nur in geöffneten Angriffs-Tabs (screen=place).
+        // Grund: künstliche KeyboardEvents lösen in Browsern oft keinen echten Submit aus.
+        // Deshalb wird zuerst Enter simuliert und danach der sichtbare Submit-Button als Enter-Ersatz geklickt.
+        const DONE_KEY = 'fg_place_enter_automation_done';
+        const STEP_KEY = 'fg_place_enter_automation_step';
+
+        function isVisible(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        }
+
+        function findButton(selectors) {
+            for (const selector of selectors) {
+                const found = Array.from(document.querySelectorAll(selector)).find(isVisible);
+                if (found) return found;
+            }
+            return null;
+        }
+
+        function fireEnterOn(el) {
+            const target = el || document.activeElement || document.body || document;
+            try { target.focus && target.focus(); } catch (e) {}
+            ['keydown', 'keypress', 'keyup'].forEach((type) => {
+                target.dispatchEvent(new KeyboardEvent(type, {
+                    key: 'Enter',
+                    code: 'Enter',
+                    keyCode: 13,
+                    which: 13,
+                    bubbles: true,
+                    cancelable: true,
+                }));
+            });
+        }
+
+        function clickLikeEnter(el) {
+            if (!el) return false;
+            fireEnterOn(el);
+            setTimeout(() => el.click(), 80);
+            return true;
+        }
+
+        function run() {
+            if (sessionStorage.getItem(DONE_KEY) === 'true') return;
+
+            const confirmButton = findButton([
+                '#troop_confirm_submit',
+                'input[name="submit"]',
+                'button[name="submit"]',
+                'input[type="submit"][value*="OK"]',
+                'input[type="submit"][value*="Bestätigen"]',
+                'input[type="submit"][value*="Confirm"]'
+            ]);
+
+            if (confirmButton) {
+                sessionStorage.setItem(DONE_KEY, 'true');
+                console.info('[Fake Generator Local Controlled] Angriffs-Tab: 2. Enter/Bestätigen ausgelöst.');
+                clickLikeEnter(confirmButton);
+                return;
+            }
+
+            if (sessionStorage.getItem(STEP_KEY) !== 'attack_clicked') {
+                const attackButton = findButton([
+                    '#target_attack',
+                    'input[name="attack"]',
+                    'button[name="attack"]',
+                    'input[type="submit"][value*="Angriff"]',
+                    'input[type="submit"][value*="Attack"]'
+                ]);
+
+                if (attackButton) {
+                    sessionStorage.setItem(STEP_KEY, 'attack_clicked');
+                    console.info('[Fake Generator Local Controlled] Angriffs-Tab: 1. Enter/Angriff ausgelöst.');
+                    clickLikeEnter(attackButton);
+                    return;
+                }
+            }
+
+            // Falls Buttons etwas später gerendert werden.
+            setTimeout(run, 500);
+        }
+
+        setTimeout(run, 1200);
     }
 
     function addPanel() {
@@ -120,8 +207,20 @@
 
     waitForBody();
 
+    const fgParams = new URLSearchParams(window.location.search);
+    const fgScreen = fgParams.get('screen');
+    const fgMode = fgParams.get('mode');
+
     if (!isEnabled()) {
         console.info('[Fake Generator Local Controlled] Script deaktiviert.');
+        return;
+    }
+
+    // Auf den geöffneten Angriffs-Tabs soll nur die Enter-Automatik laufen.
+    // Die Tab-Sperre wird hier bewusst ignoriert, damit es auf allen neu geöffneten Tabs läuft.
+    if (fgScreen === 'place') {
+        console.info('[Fake Generator Local Controlled] Angriffs-Tab erkannt: Originalscript wird hier nicht gestartet.');
+        runPlaceEnterAutomation();
         return;
     }
 
@@ -131,17 +230,6 @@
     }
 
     // WICHTIG: Der Fake Generator darf nur auf der Übersichts-/Berechnungsseite starten.
-    // Auf den geöffneten Angriffs-Tabs (screen=place) stoppt nur das Originalscript,
-    // damit dort nichts überschrieben oder weggeräumt wird.
-    const fgParams = new URLSearchParams(window.location.search);
-    const fgScreen = fgParams.get('screen');
-    const fgMode = fgParams.get('mode');
-
-    if (fgScreen === 'place') {
-        console.info('[Fake Generator Local Controlled] Angriffs-Tab erkannt: Originalscript wird hier nicht gestartet.');
-        return;
-    }
-
     // Auf anderen Seiten außer overview_villages soll der Generator ebenfalls nicht starten.
     // Die interne Weiterleitung des Originalscripts bleibt für overview_villages ohne combined erhalten.
     if (fgScreen && fgScreen !== 'overview_villages') {
