@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      2.3
-// @description  TWCC Angriffsplaner v2.3 Syntaxfix Post-Submit
+// @version      2.4
+// @description  TWCC Angriffsplaner v2.4 Safe Close mit Bremse
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -28,6 +28,8 @@
     const AUTO_CLOSE_KEY = 'TWCC_DSU_AUTO_CLOSE_TAB';
     const CLOSE_MARKER_KEY = 'TWCC_DSU_CLOSE_MARKER';
     const SUBMIT_PENDING_KEY = 'TWCC_DSU_SUBMIT_PENDING_DONE';
+    const TAB_BUSY_KEY = 'TWCC_DSU_TAB_BUSY_LOCK';
+    const LAST_DONE_KEY = 'TWCC_DSU_LAST_DONE_ID';
 
     const TEMPLATE_MAP = {
         ramme: 'volle off',
@@ -391,6 +393,12 @@
 
 
     function openPlaceForAttack(attack, auto = false) {
+        if (auto && isBusyLockActive()) {
+            const lock = getBusyLock();
+            log('BusyLock aktiv, öffne keinen weiteren Tab:', lock);
+            toast('Warte auf aktiven Angriff: ' + (lock?.from || '-') + ' → ' + (lock?.to || '-'));
+            return;
+        }
         if (isAttackExpired(attack)) {
             updatePlanItem(attack.id, { status: 'expired', error: 'Abschickzeit liegt in der Vergangenheit' });
             toast('Übersprungen: abgelaufen ' + attack.from + ' → ' + attack.to);
@@ -416,6 +424,7 @@
         });
 
         saveJson(ACTIVE_KEY, active);
+        if (auto) setBusyLock(active);
         updatePlanItem(attack.id, { status: auto ? 'preparing' : 'opened' });
 
         const targetParam = attack.targetId ? `&target=${encodeURIComponent(attack.targetId)}` : '';
@@ -720,9 +729,59 @@
         } catch (e) {}
     }
 
+
+    function nowMs() {
+        return Date.now();
+    }
+
+    function getBusyLock() {
+        return loadJson(TAB_BUSY_KEY, null);
+    }
+
+    function setBusyLock(attack) {
+        if (!attack || !attack.id) return;
+        saveJson(TAB_BUSY_KEY, {
+            id: attack.id,
+            tabId: normalizeTabId(attack.id),
+            from: attack.from,
+            to: attack.to,
+            at: Date.now()
+        });
+    }
+
+    function clearBusyLock(id) {
+        const lock = getBusyLock();
+        if (!lock) return;
+        if (!id || lock.id === id || lock.tabId === normalizeTabId(id)) {
+            localStorage.removeItem(TAB_BUSY_KEY);
+        }
+    }
+
+    function isBusyLockActive() {
+        const lock = getBusyLock();
+        if (!lock) return false;
+        const age = Date.now() - Number(lock.at || 0);
+        if (age > 10 * 60 * 1000) {
+            localStorage.removeItem(TAB_BUSY_KEY);
+            return false;
+        }
+        return true;
+    }
+
+    function isLogoutOrLoginPage() {
+        const href = location.href.toLowerCase();
+        const txt = (document.body?.innerText || '').toLowerCase();
+        return href.includes('logout') ||
+            href.includes('login') ||
+            txt.includes('du wurdest ausgeloggt') ||
+            txt.includes('bitte logge dich') ||
+            txt.includes('login');
+    }
+
+
     function installMainQueueOwner() {
-        if (window.__TWCC_ANGRIFFSPLANER_V2_OWNER__) return;
-        window.__TWCC_ANGRIFFSPLANER_V2_OWNER__ = true;
+        if (window.__TWCC_ANGRIFFSPLANER_V24_OWNER__) return;
+        window.__TWCC_ANGRIFFSPLANER_V24_OWNER__ = true;
 
         const handled = {};
 
@@ -730,46 +789,57 @@
             if (!payload || payload.type !== 'attackDone' || !payload.id) return;
 
             if (!isMainQueueWindow()) {
-                console.log('[TWCC Angriffsplaner v2] Done ignoriert im Angriffstab', payload);
+                console.log('[TWCC Angriffsplaner v2.4] Done ignoriert im Angriffstab', payload);
                 return;
             }
 
-            const fresh = Date.now() - Number(payload.at || 0) < 30000;
+            const fresh = Date.now() - Number(payload.at || 0) < 90000;
             if (!fresh) return;
 
-            if (handled[payload.id]) {
-                console.log('[TWCC Angriffsplaner v2] Done doppelt ignoriert', payload.id, source);
+            const duplicateKey = payload.id + ':' + (payload.reason || '');
+            if (handled[duplicateKey]) {
+                console.log('[TWCC Angriffsplaner v2.4] Done doppelt ignoriert', duplicateKey, source);
                 return;
             }
 
-            handled[payload.id] = Date.now();
+            handled[duplicateKey] = Date.now();
+            localStorage.setItem(LAST_DONE_KEY, payload.id);
 
-            console.log('[TWCC Angriffsplaner v2] Done im Hauptfenster', payload, source);
+            console.log('[TWCC Angriffsplaner v2.4] Done im Hauptfenster', payload, source);
 
-            // Status sicher setzen, falls der Angriffstab direkt nach Submit weg ist.
             if (payload.rawId) {
                 updatePlanItem(payload.rawId, { status: 'submitted_test', submitAt: Date.now() });
             }
 
             localStorage.removeItem(ACTIVE_KEY);
 
-            const closeDelay = 600;
-            const nextDelay = 1300;
+            const closeDelay = 2500;
+            const nextDelay = 5000;
 
             if (isAutoCloseEnabled()) {
                 setTimeout(() => {
                     const tm = getTwccTabManager();
                     if (tm && typeof tm.close === 'function') {
-                        tm.close(payload.id);
+                        const ok = tm.close(payload.id);
+                        console.log('[TWCC Angriffsplaner v2.4] Close ausgeführt', payload.id, ok);
                     } else {
-                        console.warn('[TWCC Angriffsplaner v2] Kein TabManager zum Schließen', payload.id);
+                        console.warn('[TWCC Angriffsplaner v2.4] Kein TabManager zum Schließen', payload.id);
                     }
+                    clearBusyLock(payload.rawId || payload.id);
                 }, closeDelay);
+            } else {
+                clearBusyLock(payload.rawId || payload.id);
             }
 
             setTimeout(() => {
+                if (isLogoutOrLoginPage()) {
+                    stopQueue();
+                    toast('Login/Logout erkannt – Angriffe gestoppt');
+                    return;
+                }
+
                 if (isQueueRunning() && !isQueuePaused()) {
-                    queueTick('main-owner-done');
+                    queueTick('main-owner-done-safe');
                 }
             }, nextDelay);
         }
@@ -797,6 +867,8 @@
             }
         } catch (e) {}
     }
+
+
 
 
 
@@ -1445,7 +1517,12 @@
             to: marker.to
         };
 
-        console.log('[TWCC Angriffsplaner v2.2] Post-Submit erkannt -> attackDone', marker, active);
+        if (isLogoutOrLoginPage()) {
+            console.warn('[TWCC Angriffsplaner v2.4] Login/Logout nach Submit erkannt, kein Done', marker);
+            return;
+        }
+
+        console.log('[TWCC Angriffsplaner v2.4] Post-Submit erkannt -> attackDone', marker, active);
 
         updatePlanItem(marker.id, { status: 'submitted_test', submitAt: Date.now() });
         localStorage.removeItem(SUBMIT_PENDING_KEY);
@@ -1551,7 +1628,7 @@
                         localStorage.removeItem(ACTIVE_KEY);
                         setTimeout(() => queueTick('auto-submit'), 500);
                         if (shouldClose) {
-                            /* SAFE v1.6: Auto-Close deaktiviert */
+                            
                         }
                     } else {
                         saveJson(ACTIVE_KEY, active);
@@ -1695,7 +1772,7 @@
                     localStorage.removeItem(ACTIVE_KEY);
                     setTimeout(() => queueTick('manual-submit'), 500);
                     if (shouldClose) {
-                        /* SAFE v1.6: Auto-Close deaktiviert */
+                        
                     }
                 }
                 toast(ok ? 'Manuell gesendet' : 'Manuelles Abschicken fehlgeschlagen');
