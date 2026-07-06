@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      1.6
-// @description  TWCC Angriffsplaner SAFE Rollback - seriell ohne Auto-Close
+// @version      2.0
+// @description  TWCC Angriffsplaner v2.0 Master-TabOwner seriell
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -635,96 +635,179 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-
     function getTwccTabManager() {
-        // Wichtig: Im Angriffstab existiert ggf. ein eigener TWCC, aber der hat die Tab-Referenz nicht.
-        // Deshalb zuerst den opener/Main-Tab prüfen.
         try {
-            if (window.opener && !window.opener.closed && window.opener.TWCC && window.opener.TWCC.TabManager) {
-                console.log('[TWCC Angriffsplaner] TabManager über opener gefunden');
-                return window.opener.TWCC.TabManager;
-            }
-        } catch (e) {
-            console.warn('[TWCC Angriffsplaner] opener TabManager nicht erreichbar', e);
-        }
-
-        try {
-            if (window.TWCC && window.TWCC.TabManager) {
-                console.log('[TWCC Angriffsplaner] TabManager über window gefunden');
-                return window.TWCC.TabManager;
-            }
+            if (window.TWCC && window.TWCC.TabManager) return window.TWCC.TabManager;
         } catch (e) {}
 
         try {
             if (typeof unsafeWindow !== 'undefined' && unsafeWindow.TWCC && unsafeWindow.TWCC.TabManager) {
-                console.log('[TWCC Angriffsplaner] TabManager über unsafeWindow gefunden');
                 return unsafeWindow.TWCC.TabManager;
             }
         } catch (e) {}
 
-        console.warn('[TWCC Angriffsplaner] Kein TabManager gefunden');
+        try {
+            if (window.opener && !window.opener.closed && window.opener.TWCC && window.opener.TWCC.TabManager) {
+                return window.opener.TWCC.TabManager;
+            }
+        } catch (e) {}
+
         return null;
     }
 
-
-
     function openManagedTab(id, url) {
-        const tm = getTwccTabManager();
         const cleanId = String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const tm = getTwccTabManager();
 
         if (tm && typeof tm.open === 'function') {
-            console.log('[TWCC Angriffsplaner] open -> TabManager', cleanId, url);
-            return tm.open(cleanId, url);
+            console.log('[TWCC Angriffsplaner v2] TabManager.open', cleanId, url);
+            return tm.open(cleanId, url, { module: 'angriffsplaner', label: cleanId });
         }
 
-        console.warn('[TWCC Angriffsplaner] open fallback window.open', cleanId, url);
+        console.warn('[TWCC Angriffsplaner v2] window.open fallback', cleanId, url);
         return openManagedTab(attack.id, url);
     }
 
-
-
-    function closeManagedTab(id) {
-        const cleanId = String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_');
-        console.log('[TWCC Angriffsplaner] closeManagedTab', cleanId);
-
-        const tm = getTwccTabManager();
-
-        if (tm && typeof tm.requestClose === 'function') {
-            console.log('[TWCC Angriffsplaner] requestClose -> TabManager', cleanId);
-            tm.requestClose(cleanId, 'angriff-gesendet');
-        } else if (tm && typeof tm.close === 'function') {
-            console.log('[TWCC Angriffsplaner] close -> TabManager', cleanId);
-            tm.close(cleanId);
-        }
-
-        // Broadcast/localStorage immer zusätzlich senden, auch wenn ein TabManager gefunden wurde.
+    function isMainQueueWindow() {
+        // Geöffnete Angriffstabs haben üblicherweise einen opener.
+        // Nur das Hauptfenster darf Queue weiterführen und Tabs schließen.
         try {
-            const payload = { id: cleanId, reason: 'angriff-gesendet', at: Date.now() };
-            localStorage.setItem('TWCC_TAB_CLOSE_REQUEST', JSON.stringify(payload));
-            setTimeout(() => localStorage.removeItem('TWCC_TAB_CLOSE_REQUEST'), 50);
-
-            if (window.BroadcastChannel) {
-                const bc = new BroadcastChannel('TWCC_TAB_MANAGER');
-                bc.postMessage({ type: 'close', payload });
-                setTimeout(() => bc.close(), 300);
-            }
-            console.log('[TWCC Angriffsplaner] CloseRequest gesendet', payload);
-        } catch (e) {
-            console.warn('[TWCC Angriffsplaner] CloseRequest Fehler', e);
-        }
-
-        // Fallback: Tab versucht sich selbst zu schließen.
-        setTimeout(() => {
-            try {
-                console.log('[TWCC Angriffsplaner] window.close fallback');
-                window.close();
-            } catch (e) {
-                console.warn('[TWCC Angriffsplaner] window.close fallback fehlgeschlagen', e);
-            }
-        }, 1200);
+            if (window.opener && !window.opener.closed) return false;
+        } catch (e) {}
 
         return true;
     }
+
+    function normalizeTabId(id) {
+        return String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+
+    function sendAttackDoneEvent(active, reason) {
+        if (!active || !active.id) return;
+
+        const payload = {
+            type: 'attackDone',
+            id: normalizeTabId(active.id),
+            rawId: active.id,
+            from: active.from,
+            to: active.to,
+            reason: reason || 'submit',
+            at: Date.now()
+        };
+
+        console.log('[TWCC Angriffsplaner v2] attackDone senden', payload);
+
+        try {
+            if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ source: 'TWCC_ANGRIFFSPLANER_V2', payload }, '*');
+            }
+        } catch (e) {
+            console.warn('[TWCC Angriffsplaner v2] postMessage opener fehlgeschlagen', e);
+        }
+
+        try {
+            localStorage.setItem('TWCC_ANGRIFFSPLANER_DONE_V2', JSON.stringify(payload));
+            setTimeout(() => localStorage.removeItem('TWCC_ANGRIFFSPLANER_DONE_V2'), 100);
+        } catch (e) {}
+
+        try {
+            if (window.BroadcastChannel) {
+                const bc = new BroadcastChannel('TWCC_ANGRIFFSPLANER_V2');
+                bc.postMessage(payload);
+                setTimeout(() => bc.close(), 500);
+            }
+        } catch (e) {}
+    }
+
+    function installMainQueueOwner() {
+        if (window.__TWCC_ANGRIFFSPLANER_V2_OWNER__) return;
+        window.__TWCC_ANGRIFFSPLANER_V2_OWNER__ = true;
+
+        const handled = {};
+
+        function handle(payload, source) {
+            if (!payload || payload.type !== 'attackDone' || !payload.id) return;
+
+            if (!isMainQueueWindow()) {
+                console.log('[TWCC Angriffsplaner v2] Done ignoriert im Angriffstab', payload);
+                return;
+            }
+
+            const fresh = Date.now() - Number(payload.at || 0) < 30000;
+            if (!fresh) return;
+
+            if (handled[payload.id]) {
+                console.log('[TWCC Angriffsplaner v2] Done doppelt ignoriert', payload.id, source);
+                return;
+            }
+
+            handled[payload.id] = Date.now();
+
+            console.log('[TWCC Angriffsplaner v2] Done im Hauptfenster', payload, source);
+
+            // Status sicher setzen, falls der Angriffstab direkt nach Submit weg ist.
+            if (payload.rawId) {
+                updatePlanItem(payload.rawId, { status: 'submitted_test', submitAt: Date.now() });
+            }
+
+            localStorage.removeItem(ACTIVE_KEY);
+
+            const closeDelay = 600;
+            const nextDelay = 1300;
+
+            if (isAutoCloseEnabled()) {
+                setTimeout(() => {
+                    const tm = getTwccTabManager();
+                    if (tm && typeof tm.close === 'function') {
+                        tm.close(payload.id);
+                    } else {
+                        console.warn('[TWCC Angriffsplaner v2] Kein TabManager zum Schließen', payload.id);
+                    }
+                }, closeDelay);
+            }
+
+            setTimeout(() => {
+                if (isQueueRunning() && !isQueuePaused()) {
+                    queueTick('main-owner-done');
+                }
+            }, nextDelay);
+        }
+
+        try {
+            window.addEventListener('message', function (event) {
+                if (!event.data || event.data.source !== 'TWCC_ANGRIFFSPLANER_V2') return;
+                handle(event.data.payload, 'postMessage');
+            });
+        } catch (e) {}
+
+        try {
+            window.addEventListener('storage', function (event) {
+                if (event.key !== 'TWCC_ANGRIFFSPLANER_DONE_V2' || !event.newValue) return;
+                try { handle(JSON.parse(event.newValue), 'storage'); } catch (e) {}
+            });
+        } catch (e) {}
+
+        try {
+            if (window.BroadcastChannel) {
+                const bc = new BroadcastChannel('TWCC_ANGRIFFSPLANER_V2');
+                bc.onmessage = function (event) {
+                    handle(event.data, 'broadcast');
+                };
+            }
+        } catch (e) {}
+    }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -733,9 +816,10 @@
 
 
     function isAutoCloseEnabled() {
-        // SAFE v1.6: Auto-Close deaktiviert, bis TabManager mit harter Sperre neu gebaut ist.
-        return false;
+        return localStorage.getItem(AUTO_CLOSE_KEY) !== '0';
     }
+
+
 
     function setAutoCloseEnabled(value) {
         localStorage.setItem(AUTO_CLOSE_KEY, value ? '1' : '0');
@@ -755,26 +839,11 @@
     }
 
     function maybeAutoCloseThisTab() {
-        if (!isAutoCloseEnabled()) return;
-        const marker = loadJson(CLOSE_MARKER_KEY, null);
-        if (!marker) return;
-
-        const params = getParams();
-        const currentVillage = params.get('village') || '';
-
-        // Nur Tabs schließen, die sehr wahrscheinlich vom Angriffsplaner geöffnet wurden.
-        const isSameVillage = !marker.villageId || marker.villageId === currentVillage;
-        const fresh = Date.now() - Number(marker.at || 0) < 20000;
-
-        if (!fresh || !isSameVillage) return;
-
-        console.log('[TWCC Angriffsplaner] Tab wird nach Senden geschlossen', marker);
-        localStorage.removeItem(CLOSE_MARKER_KEY);
-
-        setTimeout(() => {
-            closeManagedTab(marker.id);
-        }, 600);
+        // v2.0: Schließen übernimmt ausschließlich das Hauptfenster über TabManager.
+        try { localStorage.removeItem(CLOSE_MARKER_KEY); } catch (e) {}
     }
+
+
 
 
     function getStatusInfo(status, error) {
@@ -1527,7 +1596,7 @@
                         Limit:
                         <input id="twcc-dsu-calib-limit" type="number" style="width:70px;" value="300">
                         <label style="white-space:nowrap;"><input id="twcc-dsu-autocalib" type="checkbox" checked> Auto-Kalibrierung</label>
-                        <label style="white-space:nowrap;opacity:.55;"><input id="twcc-dsu-autoclose" type="checkbox" disabled> Tab nach Senden schließen (deaktiviert)</label>
+                        <label style="white-space:nowrap;"><input id="twcc-dsu-autoclose" type="checkbox" checked> Tab nach Senden schließen</label>
                         <button id="twcc-dsu-save-timing">Speichern</button>
                         <div style="margin-top:5px;font-size:11px;">Statistik: <span id="twcc-dsu-timing-stats">-</span></div>
                     </div>
@@ -1666,6 +1735,7 @@
 
     function init() {
         maybeAutoCloseThisTab();
+        installMainQueueOwner();
         addLauncher();
 
         if (getScreen() === 'overview_villages') {
