@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Fake Generator Local Controlled
 // @namespace    https://github.com/SaveBankDev/FakeGenerator
-// @version      2.3.7-local-controlled
-// @description  Lokale Tampermonkey-Version mit Aktivieren/Deaktivieren-Button und Tab-Sperre
-// @author       SaveBank / RedAlert + local wrapper
+// @version      2.3.8-local-controlled-autoclose
+// @description  Lokale Version mit Aktivieren/Deaktivieren, Tab-Sperre und Auto-Close nach Fake-Senden
+// @author       Daniel
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
 // @match        https://*.tribalwars.*/*game.php*
@@ -57,6 +57,45 @@
         // Deshalb wird zuerst Enter simuliert und danach der sichtbare Submit-Button als Enter-Ersatz geklickt.
         const DONE_KEY = 'fg_place_enter_automation_done';
         const STEP_KEY = 'fg_place_enter_automation_step';
+        const CLOSE_PENDING_KEY = 'fg_place_enter_automation_close_pending';
+
+        function closeIfSubmitWasDone() {
+            const pendingRaw = sessionStorage.getItem(CLOSE_PENDING_KEY);
+            if (!pendingRaw) return false;
+
+            let pending = null;
+            try {
+                pending = JSON.parse(pendingRaw);
+            } catch (e) {
+                pending = { at: Date.now(), reason: pendingRaw };
+            }
+
+            const age = Date.now() - Number(pending.at || 0);
+
+            // Nur frische Marker verwenden, damit kein alter Tab versehentlich schließt.
+            if (age > 120000) {
+                sessionStorage.removeItem(CLOSE_PENDING_KEY);
+                return false;
+            }
+
+            console.info('[Fake Generator Local Controlled] Fake-Tab: Submit erledigt, Tab schließt gleich.', pending);
+
+            sessionStorage.removeItem(CLOSE_PENDING_KEY);
+            sessionStorage.setItem(DONE_KEY, 'true');
+
+            setTimeout(() => {
+                try {
+                    window.close();
+                } catch (e) {
+                    console.warn('[Fake Generator Local Controlled] window.close nicht erlaubt:', e);
+                }
+            }, 1800);
+
+            return true;
+        }
+
+        // Nach dem Bestätigen lädt der Tab neu. Auf dieser neuen Seite schließen wir den Tab.
+        if (closeIfSubmitWasDone()) return;
 
         function isVisible(el) {
             if (!el) return false;
@@ -108,9 +147,17 @@
             ]);
 
             if (confirmButton) {
+                sessionStorage.setItem(CLOSE_PENDING_KEY, JSON.stringify({
+                    at: Date.now(),
+                    reason: 'confirm-submit',
+                    href: location.href
+                }));
                 sessionStorage.setItem(DONE_KEY, 'true');
-                console.info('[Fake Generator Local Controlled] Angriffs-Tab: 2. Enter/Bestätigen ausgelöst.');
+                console.info('[Fake Generator Local Controlled] Angriffs-Tab: 2. Enter/Bestätigen ausgelöst. Close-Marker gesetzt.');
                 clickLikeEnter(confirmButton);
+
+                // Fallback: Falls kein Seitenwechsel passiert, nicht sofort schließen.
+                // Der normale Close passiert nach dem Reload über CLOSE_PENDING_KEY.
                 return;
             }
 
