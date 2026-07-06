@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      2.0
-// @description  TWCC Angriffsplaner v2.0 Master-TabOwner seriell
+// @version      2.1
+// @description  TWCC Angriffsplaner v2.1 Done-Signal Fix
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -1480,6 +1480,10 @@
                 const active = loadJson(ACTIVE_KEY, null);
                 if (active?.id) {
                     updatePlanItem(active.id, { status: ok ? 'submitted_test' : 'submit_failed', submitAt: Date.now() });
+                    if (ok) {
+                        console.log('[TWCC Angriffsplaner v2.1] Submit OK Fallback Done', active);
+                        sendAttackDoneEvent(active, 'auto-submit-fallback');
+                    }
                     active.phase = ok ? 'submitted-test' : 'submit-failed';
                     active.submitAt = Date.now();
                     if (ok) {
