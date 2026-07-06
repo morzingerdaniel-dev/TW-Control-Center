@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Fake Generator Local Controlled
-// @namespace    https://github.com/SaveBankDev/FakeGenerator
+// @namespace    https://github.com/Daniel/FakeGenerator
 // @version      2.3.8-local-controlled-autoclose
 // @description  Lokale Version mit Aktivieren/Deaktivieren, Tab-Sperre und Auto-Close nach Fake-Senden
 // @author       Daniel
