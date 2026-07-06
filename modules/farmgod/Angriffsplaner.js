@@ -1464,7 +1464,7 @@
             document.getElementById('twcc-dsu-exec-manual').onclick = () => {
                 const btn = findConfirmButton();
                 const active = loadJson(ACTIVE_KEY, null);
-                if (active && isAutoCloseEnabled() && active.openedByExecutor) {
+                if (active && isAutoCloseEnabled() && active.openedByAngriffsplaner) {
                     setCloseMarker(active, 'manual-submit');
                 }
                 const ok = submitConfirm(btn);
