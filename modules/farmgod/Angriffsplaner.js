@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      2.2
-// @description  TWCC Angriffsplaner v2.2 Post-Submit-Done Marker
+// @version      2.3
+// @description  TWCC Angriffsplaner v2.3 Syntaxfix Post-Submit
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
