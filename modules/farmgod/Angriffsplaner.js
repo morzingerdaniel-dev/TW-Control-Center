@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Angriffsplaner Test Phase 1
-// @namespace    Test
-// @version      1.0
-// @description  Angriffsplaner mit Live-Status und Auto-Close
+// @name         TWCC Angriffsplaner
+// @namespace    TWCC
+// @version      1.0.1
+// @description  Angriffsplaner V1 stabil mit Auto-Close Marker Fix
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -654,6 +654,7 @@
             reason: reason || 'submitted',
             at: Date.now()
         };
+        console.log('[TWCC Angriffsplaner V1.0.1] Close-Marker gesetzt', marker);
         localStorage.setItem(CLOSE_MARKER_KEY, JSON.stringify(marker));
     }
 
@@ -671,7 +672,7 @@
 
         if (!fresh || !isSameVillage) return;
 
-        console.log('[TWCC Angriffsplaner] Tab wird nach Senden geschlossen', marker);
+        console.log('[TWCC Angriffsplaner V1.0.1] Tab wird nach Senden geschlossen', marker);
         localStorage.removeItem(CLOSE_MARKER_KEY);
 
         setTimeout(() => {
@@ -838,7 +839,7 @@
 
                 <div style="background:#fff8e8;border:1px solid #c7a76b;border-radius:6px;padding:8px;margin-bottom:8px;">
                     <b>Vorlagen-Mapping:</b>
-                    Ramme/Katapult → volle off · AG → AG · Axt → Fake
+                    Ramme/Katapult → volle off · AG → AG1 · Axt → Fake
                 </div>
 
                 <textarea id="twcc-dsu-text" style="width:100%;height:170px;" placeholder="DS-Ultimate Copy-Liste hier einfügen..."></textarea>
@@ -1284,7 +1285,7 @@
                 const before = getCurrentServerMs();
                 const restAtSubmit = sendServerMs - before;
                 const activeBeforeSubmit = loadJson(ACTIVE_KEY, null);
-                if (activeBeforeSubmit && isAutoCloseEnabled() && activeBeforeSubmit.openedByExecutor) {
+                if (activeBeforeSubmit && isAutoCloseEnabled() && activeBeforeSubmit.openedByAngriffsplaner) {
                     setCloseMarker(activeBeforeSubmit, 'auto-submit');
                 }
 
@@ -1464,7 +1465,7 @@
             document.getElementById('twcc-dsu-exec-manual').onclick = () => {
                 const btn = findConfirmButton();
                 const active = loadJson(ACTIVE_KEY, null);
-                if (active && isAutoCloseEnabled() && active.openedByExecutor) {
+                if (active && isAutoCloseEnabled() && active.openedByAngriffsplaner) {
                     setCloseMarker(active, 'manual-submit');
                 }
                 const ok = submitConfirm(btn);
