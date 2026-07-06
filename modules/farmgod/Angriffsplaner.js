@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC-Test
-// @version      1.2
-// @description  TWCC Angriffsplaner mit TabManager Close-Requests
+// @version      1.3
+// @description  TWCC Angriffsplaner TabManager Bridge Fix
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
@@ -637,53 +637,96 @@
 
 
     function getTwccTabManager() {
+        // Wichtig: Im Angriffstab existiert ggf. ein eigener TWCC, aber der hat die Tab-Referenz nicht.
+        // Deshalb zuerst den opener/Main-Tab prüfen.
         try {
-            if (window.TWCC && window.TWCC.TabManager) return window.TWCC.TabManager;
-        } catch (e) {}
+            if (window.opener && !window.opener.closed && window.opener.TWCC && window.opener.TWCC.TabManager) {
+                console.log('[TWCC Angriffsplaner] TabManager über opener gefunden');
+                return window.opener.TWCC.TabManager;
+            }
+        } catch (e) {
+            console.warn('[TWCC Angriffsplaner] opener TabManager nicht erreichbar', e);
+        }
 
         try {
-            if (window.opener && window.opener.TWCC && window.opener.TWCC.TabManager) {
-                return window.opener.TWCC.TabManager;
+            if (window.TWCC && window.TWCC.TabManager) {
+                console.log('[TWCC Angriffsplaner] TabManager über window gefunden');
+                return window.TWCC.TabManager;
             }
         } catch (e) {}
 
+        try {
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.TWCC && unsafeWindow.TWCC.TabManager) {
+                console.log('[TWCC Angriffsplaner] TabManager über unsafeWindow gefunden');
+                return unsafeWindow.TWCC.TabManager;
+            }
+        } catch (e) {}
+
+        console.warn('[TWCC Angriffsplaner] Kein TabManager gefunden');
         return null;
     }
 
+
+
     function openManagedTab(id, url) {
         const tm = getTwccTabManager();
+        const cleanId = String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_');
+
         if (tm && typeof tm.open === 'function') {
-            return tm.open(id, url);
+            console.log('[TWCC Angriffsplaner] open -> TabManager', cleanId, url);
+            return tm.open(cleanId, url);
         }
+
+        console.warn('[TWCC Angriffsplaner] open fallback window.open', cleanId, url);
         return openManagedTab(attack.id, url);
     }
 
+
+
     function closeManagedTab(id) {
+        const cleanId = String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_');
+        console.log('[TWCC Angriffsplaner] closeManagedTab', cleanId);
+
         const tm = getTwccTabManager();
 
         if (tm && typeof tm.requestClose === 'function') {
-            tm.requestClose(id, 'angriff-gesendet');
+            console.log('[TWCC Angriffsplaner] requestClose -> TabManager', cleanId);
+            tm.requestClose(cleanId, 'angriff-gesendet');
         } else if (tm && typeof tm.close === 'function') {
-            tm.close(id);
-        } else {
-            try {
-                const payload = { id: String(id || 'tab').replace(/[^a-zA-Z0-9_-]/g, '_'), reason: 'angriff-gesendet', at: Date.now() };
-                localStorage.setItem('TWCC_TAB_CLOSE_REQUEST', JSON.stringify(payload));
-                localStorage.removeItem('TWCC_TAB_CLOSE_REQUEST');
-                if (window.BroadcastChannel) {
-                    const bc = new BroadcastChannel('TWCC_TAB_MANAGER');
-                    bc.postMessage({ type: 'close', payload });
-                    setTimeout(() => bc.close(), 300);
-                }
-            } catch (e) {}
+            console.log('[TWCC Angriffsplaner] close -> TabManager', cleanId);
+            tm.close(cleanId);
         }
 
+        // Broadcast/localStorage immer zusätzlich senden, auch wenn ein TabManager gefunden wurde.
+        try {
+            const payload = { id: cleanId, reason: 'angriff-gesendet', at: Date.now() };
+            localStorage.setItem('TWCC_TAB_CLOSE_REQUEST', JSON.stringify(payload));
+            setTimeout(() => localStorage.removeItem('TWCC_TAB_CLOSE_REQUEST'), 50);
+
+            if (window.BroadcastChannel) {
+                const bc = new BroadcastChannel('TWCC_TAB_MANAGER');
+                bc.postMessage({ type: 'close', payload });
+                setTimeout(() => bc.close(), 300);
+            }
+            console.log('[TWCC Angriffsplaner] CloseRequest gesendet', payload);
+        } catch (e) {
+            console.warn('[TWCC Angriffsplaner] CloseRequest Fehler', e);
+        }
+
+        // Fallback: Tab versucht sich selbst zu schließen.
         setTimeout(() => {
-            closeManagedTab(active.id)
-        }, 500);
+            try {
+                console.log('[TWCC Angriffsplaner] window.close fallback');
+                window.close();
+            } catch (e) {
+                console.warn('[TWCC Angriffsplaner] window.close fallback fehlgeschlagen', e);
+            }
+        }, 700);
 
         return true;
     }
+
+
 
 
 
