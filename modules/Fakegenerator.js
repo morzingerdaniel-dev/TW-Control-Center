@@ -3,7 +3,7 @@
 // @namespace    https://github.com/SaveBankDev/FakeGenerator
 // @version      2.3.7-local-controlled
 // @description  Lokale Tampermonkey-Version mit Aktivieren/Deaktivieren-Button und Tab-Sperre
-// @author       daniel + local wrapper
+// @author       SaveBank / RedAlert + local wrapper
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
 // @match        https://*.tribalwars.*/*game.php*
