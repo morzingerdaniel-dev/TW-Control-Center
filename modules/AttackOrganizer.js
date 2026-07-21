@@ -204,7 +204,7 @@
     }
 
     function colorRows() {
-        $('#incomings_table tr.nowrap, #commands_incomings .command-row').each(function () {
+        $('#incomings_table tr.nowrap, #incomings_table tr.command-row, #incomings_table tbody tr, #commands_incomings .command-row').each(function () {
             const $line = $(this);
 
             if (isSupport(this)) {
@@ -237,7 +237,7 @@
     function scan() {
         scheduled = false;
 
-        $('#commands_incomings .command-row, #incomings_table tr.nowrap').each(function (nr) {
+        $('#commands_incomings .command-row, #incomings_table tr.nowrap, #incomings_table tr.command-row, table#incomings_table tbody tr').each(function (nr) {
             processRow(this, nr);
         });
 
@@ -290,7 +290,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '1.2.0-twcc-context-fix',
+        version: '3.0.0-twcc',
         init,
         destroy,
         refresh: scan
