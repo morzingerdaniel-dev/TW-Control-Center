@@ -1,6 +1,7 @@
 /**
- * TWCC Attack Organizer v3.4
- * Reagiert ausschließlich auf Befehlszeilen unter der Abschnittsüberschrift „Eintreffend“.
+ * TWCC Attack Organizer v3.5
+ * Nur „Eintreffend“, frei sortierbare Buttons und explizite Aktion:
+ * Status ersetzen oder Zusatz anhängen.
  */
 (function () {
     'use strict';
@@ -74,6 +75,7 @@
     const buttonIcons = $.map(settings, obj => obj[1]);
     const buttonColors = $.map(settings, obj => obj[2]);
     const buttonTextColors = $.map(settings, obj => obj[3]);
+    const buttonModes = $.map(settings, obj => obj[4] || (String(obj[0] || '').indexOf('|') !== -1 ? 'append' : 'replace'));
 
     let observer = null;
     let scheduled = false;
@@ -104,7 +106,7 @@
         return String(value || '').trim().split(/\s+/)[0] || '';
     }
 
-    function renameLine(line, text, append) {
+    function renameLine(line, text, mode) {
         const $line = $(line);
         const $rename = $line.find('.rename-icon').first();
 
@@ -120,7 +122,12 @@
             if (!$input.length || !$save.length) return;
 
             const current = $input.val() || '';
-            $input.val(append ? current + text : baseCommandName(current) + ' ' + text);
+                        if (mode === 'append') {
+                const separator = current && text && !/^\s/.test(text) ? ' ' : '';
+                $input.val(current + separator + text);
+            } else {
+                $input.val((baseCommandName(current) + ' ' + text).trim());
+            }
             $save.trigger('click');
 
             setTimeout(function () {
@@ -178,7 +185,7 @@
                     event.preventDefault();
                     event.stopPropagation();
                     const text = buttonNames[num] || '';
-                    renameLine(line, text, text.indexOf('|') !== -1);
+                    renameLine(line, text, buttonModes[num] === 'append' ? 'append' : 'replace');
                 });
 
             $wrap.append($button);
@@ -382,7 +389,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.4.0-eintreffend-section-only',
+        version: '3.5.0-sortable-actions',
         init,
         destroy,
         refresh: scan
