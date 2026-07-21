@@ -1,6 +1,6 @@
 /**
- * TWCC Attack Organizer v3.2
- * Organizer buttons, renaming and coloring only for incoming commands.
+ * TWCC Attack Organizer v3.3
+ * Reagiert ausschließlich im Bereich „Eintreffend“.
  */
 (function () {
     'use strict';
@@ -220,28 +220,67 @@
         });
     }
 
-    function isIncomingCommandRow(line) {
-        const $line = $(line);
+    function normalizeSectionText(value) {
+        return String(value || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
 
-        // Incoming commands have the selection checkbox used by the
-        // „alle auswählen / Ignorieren“-area. Own outgoing commands do not.
-        const hasIncomingCheckbox = $line.find(
-            'input[type="checkbox"], .command-row-selector, .select-command'
-        ).length > 0;
+    function getIncomingRows() {
+        const rows = [];
 
-        if (!hasIncomingCheckbox) return false;
+        // Bevorzugt: echte TW-IDs für eintreffende Befehle.
+        $('#commands_incomings, #incomings_table').each(function () {
+            $(this).find('tbody tr, tr').each(function () {
+                if ($(this).find('.rename-icon, .quickedit-label, .quickedit').length) {
+                    rows.push(this);
+                }
+            });
+        });
 
-        // Extra guard against own-command/cancel rows.
-        const rowText = $.trim($line.text()).toLowerCase();
-        const hasCancelControl = $line.find(
-            'a[href*="action=cancel"], a[href*="cancel"], .command-cancel, .cancel-command'
-        ).length > 0;
+        if (rows.length) return $(Array.from(new Set(rows)));
 
-        return !hasCancelControl && rowText !== '';
+        // Fallback für Welten/Layouts ohne feste IDs:
+        // Nur die Tabelle direkt unter der Überschrift „Eintreffend (...)“ verwenden.
+        $('h1, h2, h3, h4, .vis h3, .commands-container h3, th').each(function () {
+            const title = normalizeSectionText($(this).text());
+            if (!/^eintreffend(?:\s|\(|$)/.test(title)) return;
+
+            let $table = $(this).nextAll('table').first();
+
+            if (!$table.length) {
+                const $section = $(this).closest('.commands-container, .vis, .content-border, .widget, div');
+                $table = $section.find('table').filter(function () {
+                    return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0;
+                }).first();
+            }
+
+            $table.find('tbody tr, tr').each(function () {
+                if ($(this).find('.rename-icon, .quickedit-label, .quickedit').length) {
+                    rows.push(this);
+                }
+            });
+        });
+
+        return $(Array.from(new Set(rows)));
+    }
+
+    function cleanupOutsideIncoming() {
+        const incoming = new Set(getIncomingRows().toArray());
+
+        $('.twcc-ao-buttons').each(function () {
+            const row = $(this).closest('tr')[0];
+            if (!row || !incoming.has(row)) {
+                $(this).remove();
+                if (row) $(row).removeAttr('data-twcc-ao-ready');
+            }
+        });
     }
 
     function colorRows() {
-        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return isIncomingCommandRow(this) && $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function () {
+        getIncomingRows().each(function () {
             const $line = $(this);
 
             if (isSupport(this)) {
@@ -273,8 +312,9 @@
 
     function scan() {
         scheduled = false;
+        cleanupOutsideIncoming();
 
-        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return isIncomingCommandRow(this) && $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function (nr) {
+        getIncomingRows().each(function (nr) {
             processRow(this, nr);
         });
 
@@ -306,16 +346,6 @@
         }
 
         ensureButtonStyles();
-
-        // Remove buttons from outgoing commands left behind by an older module version.
-        $('.twcc-ao-buttons').each(function () {
-            const row = $(this).closest('tr')[0];
-            if (!row || !isIncomingCommandRow(row)) {
-                $(this).remove();
-                $(row).removeAttr('data-twcc-ao-ready');
-            }
-        });
-
         scan();
 
         const Observer = win.MutationObserver || window.MutationObserver;
@@ -350,7 +380,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.2.1-incomings-only',
+        version: '3.3.0-eintreffend-only',
         init,
         destroy,
         refresh: scan
