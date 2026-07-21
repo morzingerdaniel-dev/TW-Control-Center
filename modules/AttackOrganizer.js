@@ -142,16 +142,26 @@
         if ($line.attr('data-twcc-ao-ready') === '1') return;
         if (isSupport(line)) return;
 
-        let $target = $line.find('.quickedit-content').first();
-        if (!$target.length) $target = $line.find('.quickedit-label').first().parent();
+        // Die quickedit-content ist auf aktuellen Welten häufig ausgeblendet.
+        // Darum werden die Buttons in die sichtbare Befehlszelle eingesetzt.
+        const $quickedit = $line.find('.quickedit').first();
+        const $label = $line.find('.quickedit-label').first();
+        const $rename = $line.find('.rename-icon').first();
+
+        let $target = $quickedit.closest('td');
+        if (!$target.length) $target = $label.closest('td');
+        if (!$target.length) $target = $rename.closest('td');
         if (!$target.length) return;
 
         const $wrap = $('<span class="twcc-ao-buttons"></span>').css({
-            float: 'right',
             display: 'inline-flex',
             flexWrap: 'wrap',
+            alignItems: 'center',
             gap: '2px',
-            marginLeft: '4px'
+            marginLeft: '6px',
+            verticalAlign: 'middle',
+            position: 'relative',
+            zIndex: '5'
         });
 
         buttonIcons.forEach(function (icon, num) {
@@ -175,7 +185,15 @@
             $wrap.append($button);
         });
 
-        $target.append($wrap);
+        // Direkt hinter dem sichtbaren Quickedit-Element einsetzen.
+        if ($quickedit.length) {
+            $quickedit.after($wrap);
+        } else if ($label.length) {
+            $label.closest('.quickedit-content, .quickedit, span').after($wrap);
+        } else {
+            $target.append($wrap);
+        }
+
         $line.attr('data-twcc-ao-ready', '1');
     }
 
@@ -204,7 +222,7 @@
     }
 
     function colorRows() {
-        $('#incomings_table tr.nowrap, #incomings_table tr.command-row, #incomings_table tbody tr, #commands_incomings .command-row').each(function () {
+        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function () {
             const $line = $(this);
 
             if (isSupport(this)) {
@@ -237,7 +255,7 @@
     function scan() {
         scheduled = false;
 
-        $('#commands_incomings .command-row, #incomings_table tr.nowrap, #incomings_table tr.command-row, table#incomings_table tbody tr').each(function (nr) {
+        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function (nr) {
             processRow(this, nr);
         });
 
@@ -250,12 +268,25 @@
         setTimeout(scan, 60);
     }
 
+    function ensureButtonStyles() {
+        if (document.getElementById('twcc-ao-visible-style')) return;
+        const style = document.createElement('style');
+        style.id = 'twcc-ao-visible-style';
+        style.textContent = `
+            .twcc-ao-buttons { visibility: visible !important; opacity: 1 !important; }
+            .twcc-ao-button { display: inline-block !important; visibility: visible !important; opacity: 1 !important; cursor: pointer !important; }
+            #incomings_table td, #commands_incomings td { overflow: visible !important; }
+        `;
+        document.head.appendChild(style);
+    }
+
     function init() {
         if (!document.body) {
             setTimeout(init, 100);
             return;
         }
 
+        ensureButtonStyles();
         scan();
 
         const Observer = win.MutationObserver || window.MutationObserver;
@@ -290,7 +321,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.0.0-twcc',
+        version: '3.1.0-twcc-buttons-visible',
         init,
         destroy,
         refresh: scan
