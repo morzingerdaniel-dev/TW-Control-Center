@@ -6,8 +6,8 @@
 (function () {
     'use strict';
 
-    const win = window;
-    const $ = win.jQuery || win.$;
+    const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+    const $ = win.jQuery || win.$ || window.jQuery || window.$;
 
     if (!$) {
         console.error('[TWCC Attack Organizer] jQuery wurde nicht gefunden.');
@@ -251,15 +251,30 @@
     }
 
     function init() {
+        if (!document.body) {
+            setTimeout(init, 100);
+            return;
+        }
+
         scan();
 
-        observer = new MutationObserver(scheduleScan);
+        const Observer = win.MutationObserver || window.MutationObserver;
+        observer = new Observer(scheduleScan);
         observer.observe(document.body, {
             childList: true,
             subtree: true
         });
 
-        console.log('[TWCC Attack Organizer] gestartet.');
+        // Einige Übersichten laden die Angriffstabelle verzögert per AJAX.
+        setTimeout(scan, 500);
+        setTimeout(scan, 1500);
+        setTimeout(scan, 3500);
+
+        console.log('[TWCC Attack Organizer] gestartet.', {
+            href: location.href,
+            buttons: buttonNames.length,
+            layout: attackLayout
+        });
     }
 
     function destroy() {
@@ -272,8 +287,10 @@
         console.log('[TWCC Attack Organizer] beendet.');
     }
 
+    win.TWCC_AttackOrganizerLoaded = true;
+
     win.TWCC_AttackOrganizer = {
-        version: '1.1.0-twcc',
+        version: '1.2.0-twcc-context-fix',
         init,
         destroy,
         refresh: scan
