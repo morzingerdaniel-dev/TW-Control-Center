@@ -2,6 +2,7 @@
  * TWCC Attack Organizer
  * Based on "Attack Organizer (with Colors v3.0)"
  * TWCC-compatible external module.
+ * v3.2: Organizer buttons and renaming are limited to incoming commands only.
  */
 (function () {
     'use strict';
@@ -222,7 +223,7 @@
     }
 
     function colorRows() {
-        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function () {
+        $('#commands_incomings tr, #incomings_table tbody tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function () {
             const $line = $(this);
 
             if (isSupport(this)) {
@@ -255,7 +256,7 @@
     function scan() {
         scheduled = false;
 
-        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function (nr) {
+        $('#commands_incomings tr, #incomings_table tbody tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function (nr) {
             processRow(this, nr);
         });
 
@@ -321,7 +322,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.1.0-twcc-buttons-visible',
+        version: '3.2.0-incomings-only',
         init,
         destroy,
         refresh: scan
