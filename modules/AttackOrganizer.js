@@ -1,6 +1,6 @@
 /**
- * TWCC Attack Organizer v3.3
- * Reagiert ausschließlich im Bereich „Eintreffend“.
+ * TWCC Attack Organizer v3.4
+ * Reagiert ausschließlich auf Befehlszeilen unter der Abschnittsüberschrift „Eintreffend“.
  */
 (function () {
     'use strict';
@@ -220,7 +220,8 @@
         });
     }
 
-    function normalizeSectionText(value) {
+
+    function normalizeText(value) {
         return String(value || '')
             .replace(/\u00a0/g, ' ')
             .replace(/\s+/g, ' ')
@@ -229,50 +230,50 @@
     }
 
     function getIncomingRows() {
-        const rows = [];
+        const result = [];
 
-        // Bevorzugt: echte TW-IDs für eintreffende Befehle.
-        $('#commands_incomings, #incomings_table').each(function () {
-            $(this).find('tbody tr, tr').each(function () {
-                if ($(this).find('.rename-icon, .quickedit-label, .quickedit').length) {
-                    rows.push(this);
+        $('table').each(function () {
+            let insideIncomingSection = false;
+
+            $(this).find('tr').each(function () {
+                const $row = $(this);
+
+                // Abschnittsüberschriften stehen in TW normalerweise in einer TH-
+                // oder einer über mehrere Spalten laufenden TD-Zelle.
+                const $headingCell = $row.children('th, td[colspan]').first();
+                const heading = normalizeText($headingCell.text());
+
+                if (/^eintreffend(?:\s|\(|$)/.test(heading)) {
+                    insideIncomingSection = true;
+                    return;
+                }
+
+                // Sobald ein anderer Befehlsabschnitt beginnt, endet „Eintreffend“.
+                if (
+                    /^(eigene befehle|ausgehend|unterstützungen|rückkehrend|befehle)(?:\s|\(|$)/.test(heading)
+                ) {
+                    insideIncomingSection = false;
+                    return;
+                }
+
+                if (
+                    insideIncomingSection &&
+                    $row.find('.rename-icon, .quickedit-label, .quickedit').length > 0
+                ) {
+                    result.push(this);
                 }
             });
         });
 
-        if (rows.length) return $(Array.from(new Set(rows)));
-
-        // Fallback für Welten/Layouts ohne feste IDs:
-        // Nur die Tabelle direkt unter der Überschrift „Eintreffend (...)“ verwenden.
-        $('h1, h2, h3, h4, .vis h3, .commands-container h3, th').each(function () {
-            const title = normalizeSectionText($(this).text());
-            if (!/^eintreffend(?:\s|\(|$)/.test(title)) return;
-
-            let $table = $(this).nextAll('table').first();
-
-            if (!$table.length) {
-                const $section = $(this).closest('.commands-container, .vis, .content-border, .widget, div');
-                $table = $section.find('table').filter(function () {
-                    return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0;
-                }).first();
-            }
-
-            $table.find('tbody tr, tr').each(function () {
-                if ($(this).find('.rename-icon, .quickedit-label, .quickedit').length) {
-                    rows.push(this);
-                }
-            });
-        });
-
-        return $(Array.from(new Set(rows)));
+        return $(Array.from(new Set(result)));
     }
 
     function cleanupOutsideIncoming() {
-        const incoming = new Set(getIncomingRows().toArray());
+        const allowed = new Set(getIncomingRows().toArray());
 
         $('.twcc-ao-buttons').each(function () {
             const row = $(this).closest('tr')[0];
-            if (!row || !incoming.has(row)) {
+            if (!row || !allowed.has(row)) {
                 $(this).remove();
                 if (row) $(row).removeAttr('data-twcc-ao-ready');
             }
@@ -363,7 +364,8 @@
         console.log('[TWCC Attack Organizer] gestartet.', {
             href: location.href,
             buttons: buttonNames.length,
-            layout: attackLayout
+            layout: attackLayout,
+            incomingRows: getIncomingRows().length
         });
     }
 
@@ -380,7 +382,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.3.0-eintreffend-only',
+        version: '3.4.0-eintreffend-section-only',
         init,
         destroy,
         refresh: scan
