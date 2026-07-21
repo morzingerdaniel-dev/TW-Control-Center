@@ -1,8 +1,6 @@
 /**
- * TWCC Attack Organizer
- * Based on "Attack Organizer (with Colors v3.0)"
- * TWCC-compatible external module.
- * v3.2: Organizer buttons and renaming are limited to incoming commands only.
+ * TWCC Attack Organizer v3.2
+ * Organizer buttons, renaming and coloring only for incoming commands.
  */
 (function () {
     'use strict';
@@ -222,8 +220,28 @@
         });
     }
 
+    function isIncomingCommandRow(line) {
+        const $line = $(line);
+
+        // Incoming commands have the selection checkbox used by the
+        // „alle auswählen / Ignorieren“-area. Own outgoing commands do not.
+        const hasIncomingCheckbox = $line.find(
+            'input[type="checkbox"], .command-row-selector, .select-command'
+        ).length > 0;
+
+        if (!hasIncomingCheckbox) return false;
+
+        // Extra guard against own-command/cancel rows.
+        const rowText = $.trim($line.text()).toLowerCase();
+        const hasCancelControl = $line.find(
+            'a[href*="action=cancel"], a[href*="cancel"], .command-cancel, .cancel-command'
+        ).length > 0;
+
+        return !hasCancelControl && rowText !== '';
+    }
+
     function colorRows() {
-        $('#commands_incomings tr, #incomings_table tbody tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function () {
+        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return isIncomingCommandRow(this) && $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function () {
             const $line = $(this);
 
             if (isSupport(this)) {
@@ -256,7 +274,7 @@
     function scan() {
         scheduled = false;
 
-        $('#commands_incomings tr, #incomings_table tbody tr').filter(function () { return $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function (nr) {
+        $('#commands_incomings tr, #incomings_table tbody tr, .commands-container tr').filter(function () { return isIncomingCommandRow(this) && $(this).find('.rename-icon, .quickedit-label, .quickedit').length > 0; }).each(function (nr) {
             processRow(this, nr);
         });
 
@@ -288,6 +306,16 @@
         }
 
         ensureButtonStyles();
+
+        // Remove buttons from outgoing commands left behind by an older module version.
+        $('.twcc-ao-buttons').each(function () {
+            const row = $(this).closest('tr')[0];
+            if (!row || !isIncomingCommandRow(row)) {
+                $(this).remove();
+                $(row).removeAttr('data-twcc-ao-ready');
+            }
+        });
+
         scan();
 
         const Observer = win.MutationObserver || window.MutationObserver;
@@ -322,7 +350,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.2.0-incomings-only',
+        version: '3.2.1-incomings-only',
         init,
         destroy,
         refresh: scan
