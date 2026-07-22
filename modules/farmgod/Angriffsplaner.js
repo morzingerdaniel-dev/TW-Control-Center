@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.1.7
+// @version      1.1.8
 // @description  Angriffsplaner mit versteckter Hotkey-Automatik, Übergabe-Export, Vorlagen-Mapping und Sprachwarnung
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
@@ -56,6 +56,7 @@
     };
 
     const DEFAULT_SOUND_SETTINGS = { enabled: true, secondsBefore: 60, warningText: 'Piep', beepCount: 2, volume: 0.55, frequency: 880 };
+    const WARNING_FIRED_KEY = 'TWCC_DSU_WARNING_FIRED_ATTACK';
 
     function log(...args) {
         console.log('[TWCC-DSU-P1]', ...args);
@@ -174,6 +175,7 @@
 
     let AUDIO_CONTEXT = null;
     let AUDIO_HOST_HEARTBEAT = null;
+    let AUDIO_SENDTIME_WATCHDOG = null;
 
     function unlockAudio() {
         try {
@@ -214,6 +216,7 @@
         AUDIO_HOST_HEARTBEAT = setInterval(() => {
             if (isAutomationEnabled()) writeAudioHost();
         }, 2000);
+        startSendTimeWarningWatchdog();
     }
 
     function getAudioHost() {
@@ -343,6 +346,53 @@
             log('Audio-Ereignis ungültig:', e);
         }
     });
+
+    function clearWarningFiredForAttack(attackId) {
+        const fired = loadJson(WARNING_FIRED_KEY, null);
+        if (!attackId || fired?.attackId === attackId) localStorage.removeItem(WARNING_FIRED_KEY);
+    }
+
+    function hasWarningFired(attackId) {
+        const fired = loadJson(WARNING_FIRED_KEY, null);
+        return !!fired && fired.attackId === attackId;
+    }
+
+    function markWarningFired(attackId, sendMs) {
+        saveJson(WARNING_FIRED_KEY, { attackId, sendMs, firedAt: Date.now() });
+    }
+
+    function checkWarningBySendTime() {
+        if (!isAutomationEnabled() || !isQueueRunning() || isQueuePaused()) return;
+        if (!isCurrentAudioHost()) return;
+
+        const active = loadJson(ACTIVE_KEY, null);
+        if (!active?.id || !active.send || hasWarningFired(active.id)) return;
+
+        const timing = getSendTimingInfo(active.send);
+        if (!timing) return;
+
+        const settings = getSoundSettings();
+        if (!settings.enabled) return;
+
+        const warningMs = Math.max(0, Number(settings.secondsBefore) || 0) * 1000;
+        const sendMs = timing.targetMs; // ausdrücklich die importierte Abschickzeit, ohne Klick-Offset
+        const remaining = sendMs - getCurrentServerMs();
+
+        // Der Haupt-Tab überwacht die Abschickzeit unabhängig von Phase 1/2.
+        // Ein großzügiges Nachholfenster fängt gedrosselte Hintergrund-Timer ab.
+        if (remaining <= warningMs && remaining > -2500) {
+            markWarningFired(active.id, sendMs);
+            playWarningSoundLocal(settings);
+            toast(`Vorwarnung: Abschickzeit in ${Math.max(0, Math.ceil(remaining / 1000))} Sekunden`);
+            log('Warnung nach Abschickzeit ausgelöst', { id: active.id, send: active.send, remaining, warningMs });
+        }
+    }
+
+    function startSendTimeWarningWatchdog() {
+        if (AUDIO_SENDTIME_WATCHDOG) clearInterval(AUDIO_SENDTIME_WATCHDOG);
+        AUDIO_SENDTIME_WATCHDOG = setInterval(checkWarningBySendTime, 200);
+        checkWarningBySendTime();
+    }
 
     function installHiddenHotkeys() {
         if (document._twccHiddenHotkeysInstalled) return;
@@ -932,6 +982,7 @@
             startedAt: Date.now()
         });
 
+        clearWarningFiredForAttack();
         saveJson(ACTIVE_KEY, active);
         updatePlanItem(attack.id, { status: auto ? 'preparing' : 'opened' });
         window.open(url, '_blank');
@@ -1993,13 +2044,15 @@
         const triggerWarning = () => {
             if (!PHASE2_STATE.armed || !isAutomationEnabled()) return false;
             const current = loadJson(ACTIVE_KEY, null);
-            if (!current || current.id !== active.id || PHASE2_STATE.warnedAttackId === active.id) return false;
-            const remaining = sendMs - getCurrentServerMs();
-            if (remaining <= 0 || remaining > warningMs + 1000) return false;
+            if (!current || current.id !== active.id || PHASE2_STATE.warnedAttackId === active.id || hasWarningFired(active.id)) return false;
+            const warningTargetMs = timing.targetMs; // Warnung immer anhand der Abschickzeit
+            const remaining = warningTargetMs - getCurrentServerMs();
+            if (remaining <= -2500 || remaining > warningMs + 1000) return false;
 
-            // Kennzeichnung vor der Ausgabe setzen: genau eine Warnung pro Angriff.
+            // Gemeinsame Kennzeichnung verhindert doppelte Warnungen aus Haupt- und Confirm-Tab.
             PHASE2_STATE.warnedAttackId = active.id;
-            playWarningSound(sound);
+            markWarningFired(active.id, warningTargetMs);
+            playWarningSoundLocal(sound);
             toast(`Vorwarnung: Angriff in ${Math.max(0, Math.round(remaining / 1000))} Sekunden`);
             if (PHASE2_STATE.warningInterval) {
                 clearInterval(PHASE2_STATE.warningInterval);
@@ -2215,6 +2268,7 @@
 
     function init() {
         installHiddenHotkeys();
+        if (isAutomationEnabled() && isCurrentAudioHost()) startSendTimeWarningWatchdog();
         const navigation = performance.getEntriesByType?.('navigation')?.[0];
         if (navigation?.type === 'reload' && !loadJson(ACTIVE_KEY, null)) {
             localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
