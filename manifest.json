@@ -1,9 +1,9 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "channel": "stable",
   "loader": {
-    "version": "2.6.4",
-    "minimumVersion": "2.6.4"
+    "version": "2.6.5",
+    "minimumVersion": "2.6.5"
   },
   "core": {
     "name": "TW Control Center",
