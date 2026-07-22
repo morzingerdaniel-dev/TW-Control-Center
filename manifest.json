@@ -30,7 +30,7 @@
     {
       "enabled": true,
       "id": "Wilkommen",
-      "version": 2,
+      "version": 3,
       "type": "warning",
       "title": {
         "de": "⚠ TWCC Wilkommen",
