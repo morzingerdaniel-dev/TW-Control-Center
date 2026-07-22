@@ -30,14 +30,14 @@
     {
       "enabled": true,
       "id": "Wilkommen",
-      "version": 3,
+      "version": 4,
       "type": "warning",
       "title": {
-        "de": "⚠ TWCC Wilkommen",
+        "de": "⚠ TWCC Willkommen",
         "en": "⚠ TWCC Welcome"
       },
       "text": {
-        "de": "Wilkommen bei deinem neuen Tool, freut mich das du es testest",
+        "de": "Willkommen bei deinem neuen Tool, freut mich, das du es testest",
         "en": "test"
       },
       "start": "2026-07-22T00:00:00",
