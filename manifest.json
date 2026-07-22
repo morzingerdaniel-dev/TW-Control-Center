@@ -1,9 +1,9 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "channel": "stable",
   "loader": {
-    "version": "2.6.3",
-    "minimumVersion": "2.6.3"
+    "version": "2.6.4",
+    "minimumVersion": "2.6.4"
   },
   "core": {
     "name": "TW Control Center",
@@ -16,25 +16,35 @@
       "version": "1"
     }
   },
-  "release": {
-    "id": "twcc-2.5.3-manifest-1",
-    "title": {
-      "de": "TWCC 2.5.3",
-      "en": "TWCC 2.5.3"
+  "modules": {
+    "AttackOrganizer": {
+      "version": "1.0.0",
+      "enabled": true
     },
-    "changes": {
-      "de": [
-        "Zentrale Versionsinformationen über manifest.json",
-        "TWCC-Änderungen werden vom Loader erkannt",
-        "Logo-Updates ohne Änderung der Bild-URL",
-        "Manifest- und Core-Cache als Fallback"
-      ],
-      "en": [
-        "Central version information via manifest.json",
-        "The loader now detects TWCC updates",
-        "Logo updates without changing the image URL",
-        "Manifest and core cache fallback"
-      ]
+    "Fakegenerator": {
+      "version": "1.0.0",
+      "enabled": true
     }
-  }
+  },
+  "announcements": [
+    {
+      "enabled": true,
+      "id": "warning-test",
+      "version": 1,
+      "type": "warning",
+      "title": {
+        "de": "⚠ TWCC Testmeldung",
+        "en": "⚠ TWCC test message"
+      },
+      "text": {
+        "de": "Wenn du diese Meldung siehst, funktioniert das neue Informationssystem. Diese Warnung schließt automatisch nach 12 Sekunden.",
+        "en": "If you can see this message, the new information system is working. This warning closes automatically after 12 seconds."
+      },
+      "start": "2026-07-22T00:00:00",
+      "end": "2027-12-31T23:59:59",
+      "showOnce": false,
+      "requireConfirmation": false,
+      "displayTime": 12
+    }
+  ]
 }
