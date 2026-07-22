@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.1.6
+// @version      1.1.7
 // @description  Angriffsplaner mit versteckter Hotkey-Automatik, Übergabe-Export, Vorlagen-Mapping und Sprachwarnung
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
@@ -30,6 +30,8 @@
     const AUTOMATION_ENABLED_KEY = 'TWCC_DSU_HIDDEN_AUTOMATION_ENABLED';
     const TEMPLATE_MAP_KEY = 'TWCC_DSU_TEMPLATE_MAP_V2';
     const SOUND_SETTINGS_KEY = 'TWCC_DSU_WARNING_SOUND_SETTINGS';
+    const AUDIO_HOST_KEY = 'TWCC_DSU_AUDIO_HOST_V1';
+    const AUDIO_EVENT_KEY = 'TWCC_DSU_AUDIO_EVENT_V1';
 
     const TEMPLATE_DEFINITIONS = [
         { key: 'spear', label: 'Speer', aliases: ['spear', 'speer'] },
@@ -147,7 +149,7 @@
             setQueueRunning(true);
             setQueuePaused(false);
             markExpiredAttacks();
-            unlockAudio();
+            claimAudioHost();
             queueTick('hotkey-enable');
         } else {
             setQueueRunning(false);
@@ -166,14 +168,62 @@
         toast(`Automatik ${isAutomationEnabled() ? 'AN' : 'AUS'} · offen ${stats.open} · erledigt ${stats.done}`);
     }
 
+    const AUDIO_TAB_ID = sessionStorage.getItem('TWCC_DSU_AUDIO_TAB_ID') ||
+        ('tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+    sessionStorage.setItem('TWCC_DSU_AUDIO_TAB_ID', AUDIO_TAB_ID);
+
     let AUDIO_CONTEXT = null;
+    let AUDIO_HOST_HEARTBEAT = null;
+
     function unlockAudio() {
         try {
             AUDIO_CONTEXT = AUDIO_CONTEXT || new (window.AudioContext || window.webkitAudioContext)();
-            if (AUDIO_CONTEXT.state === 'suspended') AUDIO_CONTEXT.resume();
+            if (AUDIO_CONTEXT.state === 'suspended') {
+                const resumed = AUDIO_CONTEXT.resume();
+                if (resumed && typeof resumed.catch === 'function') resumed.catch(() => {});
+            }
         } catch (e) {
             log('Audio nicht verfügbar:', e);
         }
+    }
+
+    function primeAudioOutput() {
+        unlockAudio();
+        if (!AUDIO_CONTEXT) return;
+        try {
+            const osc = AUDIO_CONTEXT.createOscillator();
+            const gain = AUDIO_CONTEXT.createGain();
+            gain.gain.value = 0.00001;
+            osc.connect(gain);
+            gain.connect(AUDIO_CONTEXT.destination);
+            osc.start();
+            osc.stop(AUDIO_CONTEXT.currentTime + 0.03);
+        } catch (e) {
+            log('Audio-Freischaltung fehlgeschlagen:', e);
+        }
+    }
+
+    function writeAudioHost() {
+        saveJson(AUDIO_HOST_KEY, { id: AUDIO_TAB_ID, at: Date.now() });
+    }
+
+    function claimAudioHost() {
+        primeAudioOutput();
+        writeAudioHost();
+        if (AUDIO_HOST_HEARTBEAT) clearInterval(AUDIO_HOST_HEARTBEAT);
+        AUDIO_HOST_HEARTBEAT = setInterval(() => {
+            if (isAutomationEnabled()) writeAudioHost();
+        }, 2000);
+    }
+
+    function getAudioHost() {
+        const host = loadJson(AUDIO_HOST_KEY, null);
+        return host && host.id && Date.now() - Number(host.at || 0) < 10000 ? host : null;
+    }
+
+    function isCurrentAudioHost() {
+        const host = getAudioHost();
+        return !!host && host.id === AUDIO_TAB_ID;
     }
 
     function playBeepWarning(settings) {
@@ -216,6 +266,8 @@
             utterance.volume = Math.max(0, Math.min(1, Number(settings.volume) || 0.55));
             utterance.rate = 1;
             utterance.pitch = 1;
+            let started = false;
+            utterance.onstart = () => { started = true; };
             utterance.onend = () => { if (ACTIVE_UTTERANCE === utterance) ACTIVE_UTTERANCE = null; };
             utterance.onerror = event => {
                 log('Sprachausgabe fehlgeschlagen:', event?.error || event);
@@ -230,6 +282,15 @@
             setTimeout(() => {
                 if (synth.paused) synth.resume();
             }, 120);
+            // Einige Browser melden keinen Fehler, starten die Sprache aber trotzdem nicht.
+            // Dann folgt als hörbare Absicherung ein Piepton.
+            setTimeout(() => {
+                if (!started && ACTIVE_UTTERANCE === utterance) {
+                    try { synth.cancel(); } catch (e) {}
+                    ACTIVE_UTTERANCE = null;
+                    playBeepWarning(settings);
+                }
+            }, 1200);
         } catch (e) {
             log('Sprachausgabe fehlgeschlagen:', e);
             ACTIVE_UTTERANCE = null;
@@ -237,13 +298,51 @@
         }
     }
 
-    function playWarningSound(settings = getSoundSettings()) {
+    function playWarningSoundLocal(settings = getSoundSettings()) {
         if (!settings.enabled) return;
         const text = String(settings.warningText ?? 'Piep').trim();
         if (!text) return;
         if (/^(piep|beep)$/i.test(text)) playBeepWarning(settings);
         else speakWarning(text, settings);
     }
+
+    function requestWarningFromAudioHost(settings) {
+        const event = {
+            id: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2),
+            source: AUDIO_TAB_ID,
+            at: Date.now(),
+            settings
+        };
+        saveJson(AUDIO_EVENT_KEY, event);
+    }
+
+    function playWarningSound(settings = getSoundSettings()) {
+        if (!settings.enabled) return;
+        if (isCurrentAudioHost()) {
+            playWarningSoundLocal(settings);
+            return;
+        }
+
+        const host = getAudioHost();
+        if (host) {
+            requestWarningFromAudioHost(settings);
+            return;
+        }
+
+        // Kein Haupt-Tab erreichbar: lokale Ausgabe wenigstens versuchen.
+        playWarningSoundLocal(settings);
+    }
+
+    window.addEventListener('storage', event => {
+        if (event.key !== AUDIO_EVENT_KEY || !event.newValue || !isCurrentAudioHost()) return;
+        try {
+            const payload = JSON.parse(event.newValue);
+            if (!payload || payload.source === AUDIO_TAB_ID || Date.now() - Number(payload.at || 0) > 5000) return;
+            playWarningSoundLocal(payload.settings || getSoundSettings());
+        } catch (e) {
+            log('Audio-Ereignis ungültig:', e);
+        }
+    });
 
     function installHiddenHotkeys() {
         if (document._twccHiddenHotkeysInstalled) return;
