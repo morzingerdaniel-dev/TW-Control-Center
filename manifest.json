@@ -28,7 +28,7 @@
   },
   "announcements": [
     {
-      "enabled": false,
+      "enabled": true,
       "id": "Wilkommen",
       "version": 2,
       "type": "warning",
