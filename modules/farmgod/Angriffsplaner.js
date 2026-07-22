@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.1.4
+// @version      1.1.6
 // @description  Angriffsplaner mit versteckter Hotkey-Automatik, Übergabe-Export, Vorlagen-Mapping und Sprachwarnung
-// @author       Daniel
+// @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
 // @match        https://*.tribalwars.*/*game.php*
@@ -198,22 +198,42 @@
         }
     }
 
+    let ACTIVE_UTTERANCE = null;
     function speakWarning(text, settings) {
         if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-            toast('Sprachausgabe wird von diesem Browser nicht unterstützt');
+            playBeepWarning(settings);
+            toast('Sprachausgabe nicht verfügbar – Ersatzton abgespielt');
             return;
         }
         try {
-            window.speechSynthesis.cancel();
+            const synth = window.speechSynthesis;
+            synth.cancel();
+            if (synth.paused) synth.resume();
+
             const utterance = new SpeechSynthesisUtterance(text);
+            ACTIVE_UTTERANCE = utterance; // verhindert, dass Browser die Ansage vorzeitig verwirft
             utterance.lang = document.documentElement.lang || 'de-DE';
             utterance.volume = Math.max(0, Math.min(1, Number(settings.volume) || 0.55));
             utterance.rate = 1;
             utterance.pitch = 1;
-            window.speechSynthesis.speak(utterance);
+            utterance.onend = () => { if (ACTIVE_UTTERANCE === utterance) ACTIVE_UTTERANCE = null; };
+            utterance.onerror = event => {
+                log('Sprachausgabe fehlgeschlagen:', event?.error || event);
+                if (ACTIVE_UTTERANCE === utterance) ACTIVE_UTTERANCE = null;
+                playBeepWarning(settings);
+            };
+
+            // Manche Browser verschlucken die erste Ansage nach längerer Inaktivität.
+            // Ein kurzes Resume direkt vor speak macht die Ausgabe deutlich zuverlässiger.
+            synth.resume();
+            synth.speak(utterance);
+            setTimeout(() => {
+                if (synth.paused) synth.resume();
+            }, 120);
         } catch (e) {
             log('Sprachausgabe fehlgeschlagen:', e);
-            toast('Sprachausgabe fehlgeschlagen');
+            ACTIVE_UTTERANCE = null;
+            playBeepWarning(settings);
         }
     }
 
@@ -774,7 +794,12 @@
 
 
     function openPlaceForAttack(attack, auto = false) {
-        if (isAttackExpired(attack)) {
+        const expired = isAttackExpired(attack);
+
+        // Abgelaufene Angriffe bleiben für die versteckte Automatik gesperrt.
+        // Bei ausgeschalteter Automatik darf das Startdorf aber weiterhin manuell
+        // über „Dorf öffnen“ geöffnet werden, ohne einen aktiven Angriff anzulegen.
+        if (expired && (auto || isAutomationEnabled())) {
             updatePlanItem(attack.id, { status: 'expired', error: 'Abschickzeit liegt in der Vergangenheit' });
             toast('Übersprungen: abgelaufen ' + attack.from + ' → ' + attack.to);
             if (auto && isQueueRunning() && !isQueuePaused()) setTimeout(() => queueTick('expired-open-guard'), 400);
@@ -790,6 +815,16 @@
         }
 
         const [x, y] = attack.to.split('|');
+        const targetParam = attack.targetId ? `&target=${encodeURIComponent(attack.targetId)}` : '';
+        const url = `/game.php?village=${encodeURIComponent(villageId)}&screen=place${targetParam}&x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}`;
+
+        if (expired) {
+            localStorage.removeItem(ACTIVE_KEY);
+            updatePlanItem(attack.id, { status: 'expired', error: 'Abschickzeit liegt in der Vergangenheit' });
+            toast('Abgelaufen – Startdorf wird nur manuell geöffnet');
+            window.open(url, '_blank');
+            return;
+        }
 
         const active = Object.assign({}, attack, {
             villageId,
@@ -800,9 +835,6 @@
 
         saveJson(ACTIVE_KEY, active);
         updatePlanItem(attack.id, { status: auto ? 'preparing' : 'opened' });
-
-        const targetParam = attack.targetId ? `&target=${encodeURIComponent(attack.targetId)}` : '';
-        const url = `/game.php?village=${encodeURIComponent(villageId)}&screen=place${targetParam}&x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}`;
         window.open(url, '_blank');
     }
 
@@ -1459,6 +1491,7 @@
         armed: false,
         timeout: null,
         warningTimeout: null,
+        warningInterval: null,
         warnedAttackId: null,
         raf: null,
         tick: null
@@ -1729,6 +1762,10 @@
             clearTimeout(PHASE2_STATE.warningTimeout);
             PHASE2_STATE.warningTimeout = null;
         }
+        if (PHASE2_STATE.warningInterval) {
+            clearInterval(PHASE2_STATE.warningInterval);
+            PHASE2_STATE.warningInterval = null;
+        }
         PHASE2_STATE.warnedAttackId = null;
         if (PHASE2_STATE.raf) {
             cancelAnimationFrame(PHASE2_STATE.raf);
@@ -1855,16 +1892,32 @@
         const warningMs = Math.max(0, Number(sound.secondsBefore) || 0) * 1000;
         const warningDelay = delay - warningMs;
         const triggerWarning = () => {
-            if (!PHASE2_STATE.armed || !isAutomationEnabled()) return;
+            if (!PHASE2_STATE.armed || !isAutomationEnabled()) return false;
             const current = loadJson(ACTIVE_KEY, null);
-            if (!current || current.id !== active.id || PHASE2_STATE.warnedAttackId === active.id) return;
+            if (!current || current.id !== active.id || PHASE2_STATE.warnedAttackId === active.id) return false;
+            const remaining = sendMs - getCurrentServerMs();
+            if (remaining <= 0 || remaining > warningMs + 1000) return false;
+
+            // Kennzeichnung vor der Ausgabe setzen: genau eine Warnung pro Angriff.
             PHASE2_STATE.warnedAttackId = active.id;
             playWarningSound(sound);
-            toast(`Vorwarnung: Angriff in ${Math.max(0, Math.round((sendMs - getCurrentServerMs()) / 1000))} Sekunden`);
+            toast(`Vorwarnung: Angriff in ${Math.max(0, Math.round(remaining / 1000))} Sekunden`);
+            if (PHASE2_STATE.warningInterval) {
+                clearInterval(PHASE2_STATE.warningInterval);
+                PHASE2_STATE.warningInterval = null;
+            }
+            return true;
         };
         if (sound.enabled && warningMs > 0) {
-            if (warningDelay > 0) PHASE2_STATE.warningTimeout = setTimeout(triggerWarning, warningDelay);
-            else if (delay > 0) setTimeout(triggerWarning, 50);
+            // Haupttimer plus Watchdog: Hintergrund-Tabs drosseln setTimeout teilweise stark.
+            // Der Watchdog prüft deshalb fortlaufend und warnt zuverlässig vor jedem Angriff.
+            if (warningDelay > 0) {
+                PHASE2_STATE.warningTimeout = setTimeout(triggerWarning, warningDelay);
+            } else if (delay > 0) {
+                setTimeout(triggerWarning, 25);
+            }
+            PHASE2_STATE.warningInterval = setInterval(triggerWarning, 250);
+            triggerWarning();
         }
 
         const prepareMs = 120;
