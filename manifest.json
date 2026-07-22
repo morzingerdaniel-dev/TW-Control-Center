@@ -28,8 +28,8 @@
   },
   "announcements": [
     {
-      "enabled": true,
-      "id": "warning-test",
+      "enabled": false,
+      "id": "Wilkommen",
       "version": 2,
       "type": "warning",
       "title": {
