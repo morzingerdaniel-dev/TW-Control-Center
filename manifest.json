@@ -37,14 +37,14 @@
         "en": "⚠ TWCC test message"
       },
       "text": {
-        "de": "Wenn du diese Meldung siehst, funktioniert das neue Informationssystem. Diese Warnung schließt automatisch nach 12 Sekunden.",
+        "de": "Wilkommen bei deinem neuen Tool, freut mich das du es testest",
         "en": "If you can see this message, the new information system is working. This warning closes automatically after 12 seconds."
       },
       "start": "2026-07-22T00:00:00",
       "end": "2027-12-31T23:59:59",
       "showOnce": false,
       "requireConfirmation": false,
-      "displayTime": 12
+      "displayTime": 8
     }
   ]
 }
