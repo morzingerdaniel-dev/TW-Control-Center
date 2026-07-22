@@ -7,7 +7,7 @@
   },
   "core": {
     "name": "TW Control Center",
-    "version": "2.5.3",
+    "version": "2.5.4",
     "url": "https://raw.githubusercontent.com/morzingerdaniel-dev/TW-Control-Center/main/modules/TWCC.js"
   },
   "assets": {
@@ -30,21 +30,21 @@
     {
       "enabled": true,
       "id": "Wilkommen",
-      "version": 4,
+      "version": 6,
       "type": "warning",
       "title": {
         "de": "⚠ TWCC Willkommen",
         "en": "⚠ TWCC Welcome"
       },
       "text": {
-        "de": "Willkommen bei deinem neuen Tool, freut mich, das du es testest",
+        "de": "TWCC Wurde überarbeitet, einige fehler behoben",
         "en": "test"
       },
       "start": "2026-07-22T00:00:00",
       "end": "2027-12-31T23:59:59",
       "showOnce": false,
       "requireConfirmation": false,
-      "displayTime": 8
+      "displayTime": 12
     }
   ]
 }
