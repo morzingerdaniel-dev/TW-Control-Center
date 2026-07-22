@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "channel": "stable",
   "loader": {
     "version": "2.7.0",
@@ -7,7 +7,7 @@
   },
   "core": {
     "name": "TW Control Center",
-    "version": "2.5.4",
+    "version": "2.6.0",
     "url": "https://raw.githubusercontent.com/morzingerdaniel-dev/TW-Control-Center/main/modules/TWCC.js"
   },
   "assets": {
@@ -30,7 +30,7 @@
     {
       "enabled": true,
       "id": "Wilkommen",
-      "version": 6,
+      "version": 7,
       "type": "warning",
       "title": {
         "de": "⚠ TWCC Willkommen",
