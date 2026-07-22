@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "channel": "stable",
+  "loader": {
+    "version": "2.6.3",
+    "minimumVersion": "2.6.3"
+  },
+  "core": {
+    "name": "TW Control Center",
+    "version": "2.5.3",
+    "url": "https://raw.githubusercontent.com/morzingerdaniel-dev/TW-Control-Center/main/modules/TWCC.js"
+  },
+  "assets": {
+    "logo": {
+      "url": "https://raw.githubusercontent.com/morzingerdaniel-dev/TW-Control-Center/main/assets/twcc-logo.png.gif",
+      "version": "1"
+    }
+  },
+  "release": {
+    "id": "twcc-2.5.3-manifest-1",
+    "title": {
+      "de": "TWCC 2.5.3",
+      "en": "TWCC 2.5.3"
+    },
+    "changes": {
+      "de": [
+        "Zentrale Versionsinformationen über manifest.json",
+        "TWCC-Änderungen werden vom Loader erkannt",
+        "Logo-Updates ohne Änderung der Bild-URL",
+        "Manifest- und Core-Cache als Fallback"
+      ],
+      "en": [
+        "Central version information via manifest.json",
+        "The loader now detects TWCC updates",
+        "Logo updates without changing the image URL",
+        "Manifest and core cache fallback"
+      ]
+    }
+  }
+}
