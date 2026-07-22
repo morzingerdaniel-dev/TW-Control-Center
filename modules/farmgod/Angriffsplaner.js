@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.0.2
-// @description  Angriffsplaner V1 stabil mit Auto-Close Queue-Fix
-// @author       Daniel 
+// @version      1.1.4
+// @description  Angriffsplaner mit versteckter Hotkey-Automatik, Übergabe-Export, Vorlagen-Mapping und Sprachwarnung
+// @author       Daniel
 // @match        https://*.die-staemme.de/game.php*
 // @match        https://*.tribalwars.net/game.php*
 // @match        https://*.tribalwars.*/*game.php*
@@ -27,20 +27,33 @@
     const TIMING_CALIB_LIMIT_KEY = 'TWCC_DSU_TIMING_CALIB_LIMIT';
     const AUTO_CLOSE_KEY = 'TWCC_DSU_AUTO_CLOSE_TAB';
     const CLOSE_MARKER_KEY = 'TWCC_DSU_CLOSE_MARKER';
+    const AUTOMATION_ENABLED_KEY = 'TWCC_DSU_HIDDEN_AUTOMATION_ENABLED';
+    const TEMPLATE_MAP_KEY = 'TWCC_DSU_TEMPLATE_MAP_V2';
+    const SOUND_SETTINGS_KEY = 'TWCC_DSU_WARNING_SOUND_SETTINGS';
 
-    const TEMPLATE_MAP = {
-        ramme: 'volle off',
-        rammen: 'volle off',
-        ram: 'volle off',
-        catapult: 'volle off',
-        kata: 'volle off',
-        ag: 'AG1',
-        snob: 'AG1',
-        noble: 'AG1',
-        axt: 'Fake',
-        axe: 'Fake',
-        fake: 'Fake'
+    const TEMPLATE_DEFINITIONS = [
+        { key: 'spear', label: 'Speer', aliases: ['spear', 'speer'] },
+        { key: 'sword', label: 'Schwert', aliases: ['sword', 'schwert'] },
+        { key: 'axe', label: 'Axt', aliases: ['axe', 'axt', 'fake'] },
+        { key: 'archer', label: 'Bogenschütze', aliases: ['archer', 'bogen', 'bogenschuetze', 'bogenschütze'] },
+        { key: 'spy', label: 'Späher', aliases: ['spy', 'spaeher', 'späher', 'scout'] },
+        { key: 'light', label: 'Leichte Kavallerie', aliases: ['light', 'lkav', 'leichte kavallerie'] },
+        { key: 'marcher', label: 'Berittener Bogenschütze', aliases: ['marcher', 'berittener bogenschuetze', 'berittener bogenschütze'] },
+        { key: 'heavy', label: 'Schwere Kavallerie', aliases: ['heavy', 'skav', 'schwere kavallerie'] },
+        { key: 'ram', label: 'Ramme', aliases: ['ram', 'ramme', 'rammen'] },
+        { key: 'catapult', label: 'Katapult', aliases: ['catapult', 'kata', 'katapult'] },
+        { key: 'knight', label: 'Paladin', aliases: ['knight', 'paladin'] },
+        { key: 'snob', label: 'AG', aliases: ['snob', 'ag', 'noble', 'adelsgeschlecht'] },
+        { key: 'militia', label: 'Miliz', aliases: ['militia', 'miliz'] }
+    ];
+
+    const DEFAULT_TEMPLATE_MAP = {
+        spear: 'Speer', sword: 'Schwert', axe: 'Fake', archer: 'Bogen', spy: 'Späher',
+        light: 'Leichte Kavallerie', marcher: 'Berittener Bogenschütze', heavy: 'Schwere Kavallerie',
+        ram: 'volle off', catapult: 'volle off', knight: 'Paladin', snob: 'AG1', militia: 'Miliz'
     };
+
+    const DEFAULT_SOUND_SETTINGS = { enabled: true, secondsBefore: 60, warningText: 'Piep', beepCount: 2, volume: 0.55, frequency: 880 };
 
     function log(...args) {
         console.log('[TWCC-DSU-P1]', ...args);
@@ -94,8 +107,140 @@
         return String(unit || '').trim().toLowerCase();
     }
 
+    function getTemplateMap() {
+        return Object.assign({}, DEFAULT_TEMPLATE_MAP, loadJson(TEMPLATE_MAP_KEY, {}));
+    }
+
+    function setTemplateMap(map) {
+        saveJson(TEMPLATE_MAP_KEY, Object.assign({}, DEFAULT_TEMPLATE_MAP, map || {}));
+    }
+
+    function getCanonicalUnit(unit) {
+        const normalized = normalizeUnit(unit);
+        const found = TEMPLATE_DEFINITIONS.find(def => def.aliases.includes(normalized));
+        return found ? found.key : normalized;
+    }
+
     function getTemplateName(unit) {
-        return TEMPLATE_MAP[normalizeUnit(unit)] || unit || '';
+        const normalized = normalizeUnit(unit);
+        const canonical = getCanonicalUnit(normalized);
+        const map = getTemplateMap();
+        return map[canonical] || map[normalized] || unit || '';
+    }
+
+    function getSoundSettings() {
+        const saved = loadJson(SOUND_SETTINGS_KEY, {});
+        return Object.assign({}, DEFAULT_SOUND_SETTINGS, saved || {});
+    }
+
+    function setSoundSettings(settings) {
+        saveJson(SOUND_SETTINGS_KEY, Object.assign({}, DEFAULT_SOUND_SETTINGS, settings || {}));
+    }
+
+    function isAutomationEnabled() {
+        return localStorage.getItem(AUTOMATION_ENABLED_KEY) === '1';
+    }
+
+    function setAutomationEnabled(value, showMessage = true) {
+        localStorage.setItem(AUTOMATION_ENABLED_KEY, value ? '1' : '0');
+        if (value) {
+            setQueueRunning(true);
+            setQueuePaused(false);
+            markExpiredAttacks();
+            unlockAudio();
+            queueTick('hotkey-enable');
+        } else {
+            setQueueRunning(false);
+            setQueuePaused(false);
+            clearPhase2Timer?.();
+        }
+        if (showMessage) toast(value ? 'Automatik aktiviert' : 'Automatik deaktiviert');
+    }
+
+    function toggleAutomation() {
+        setAutomationEnabled(!isAutomationEnabled(), true);
+    }
+
+    function showAutomationStatus() {
+        const stats = getQueueStats();
+        toast(`Automatik ${isAutomationEnabled() ? 'AN' : 'AUS'} · offen ${stats.open} · erledigt ${stats.done}`);
+    }
+
+    let AUDIO_CONTEXT = null;
+    function unlockAudio() {
+        try {
+            AUDIO_CONTEXT = AUDIO_CONTEXT || new (window.AudioContext || window.webkitAudioContext)();
+            if (AUDIO_CONTEXT.state === 'suspended') AUDIO_CONTEXT.resume();
+        } catch (e) {
+            log('Audio nicht verfügbar:', e);
+        }
+    }
+
+    function playBeepWarning(settings) {
+        unlockAudio();
+        if (!AUDIO_CONTEXT) return;
+        const count = Math.max(1, Math.min(10, Number(settings.beepCount) || 2));
+        const volume = Math.max(0, Math.min(1, Number(settings.volume) || 0.55));
+        const frequency = Math.max(150, Math.min(2500, Number(settings.frequency) || 880));
+        for (let i = 0; i < count; i++) {
+            const start = AUDIO_CONTEXT.currentTime + i * 0.38;
+            const osc = AUDIO_CONTEXT.createOscillator();
+            const gain = AUDIO_CONTEXT.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = frequency;
+            gain.gain.setValueAtTime(0.0001, start);
+            gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), start + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+            osc.connect(gain);
+            gain.connect(AUDIO_CONTEXT.destination);
+            osc.start(start);
+            osc.stop(start + 0.24);
+        }
+    }
+
+    function speakWarning(text, settings) {
+        if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+            toast('Sprachausgabe wird von diesem Browser nicht unterstützt');
+            return;
+        }
+        try {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = document.documentElement.lang || 'de-DE';
+            utterance.volume = Math.max(0, Math.min(1, Number(settings.volume) || 0.55));
+            utterance.rate = 1;
+            utterance.pitch = 1;
+            window.speechSynthesis.speak(utterance);
+        } catch (e) {
+            log('Sprachausgabe fehlgeschlagen:', e);
+            toast('Sprachausgabe fehlgeschlagen');
+        }
+    }
+
+    function playWarningSound(settings = getSoundSettings()) {
+        if (!settings.enabled) return;
+        const text = String(settings.warningText ?? 'Piep').trim();
+        if (!text) return;
+        if (/^(piep|beep)$/i.test(text)) playBeepWarning(settings);
+        else speakWarning(text, settings);
+    }
+
+    function installHiddenHotkeys() {
+        if (document._twccHiddenHotkeysInstalled) return;
+        document._twccHiddenHotkeysInstalled = true;
+        document.addEventListener('keydown', e => {
+            if (!e.ctrlKey || !e.altKey || e.repeat) return;
+            const key = String(e.key || '').toLowerCase();
+            if (key === 'p') {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleAutomation();
+            } else if (key === 'i') {
+                e.preventDefault();
+                e.stopPropagation();
+                showAutomationStatus();
+            }
+        }, true);
     }
 
     function scanOwnVillages() {
@@ -119,6 +264,24 @@
         if (!m) return str;
         const ms = m[7] !== undefined ? '.' + String(m[7]).padEnd(3, '0').slice(0, 3) : '';
         return `${pad(m[3])}.${pad(m[2])}.${m[1]} ${pad(m[4])}:${m[5]}:${m[6]}${ms}`;
+    }
+
+    function getAttackSendTimestamp(attack) {
+        if (!attack || !attack.ok) return Number.POSITIVE_INFINITY;
+        const parsed = parseDateTimeDe(attack.send);
+        return parsed && Number.isFinite(parsed.targetMs)
+            ? parsed.targetMs
+            : Number.POSITIVE_INFINITY;
+    }
+
+    function sortPlanBySendTime(plan) {
+        return (Array.isArray(plan) ? plan : [])
+            .map((attack, originalIndex) => ({ attack, originalIndex }))
+            .sort((a, b) => {
+                const timeDiff = getAttackSendTimestamp(a.attack) - getAttackSendTimestamp(b.attack);
+                return timeDiff || a.originalIndex - b.originalIndex;
+            })
+            .map(entry => entry.attack);
     }
 
     function parseDsuBBCode(text) {
@@ -166,7 +329,7 @@
 
     function parseDsuText(text) {
         const bb = parseDsuBBCode(text);
-        if (bb.length) return bb;
+        if (bb.length) return sortPlanBySendTime(bb);
 
         const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         const result = [];
@@ -216,7 +379,7 @@
             result.push({ ok: false, status: 'error', line: idx + 1, raw: line, error: 'Nicht erkannt' });
         });
 
-        return result;
+        return sortPlanBySendTime(result);
     }
 
     function escapeHtml(s) {
@@ -237,6 +400,222 @@
             saveJson(PLAN_KEY, plan);
         }
         return plan;
+    }
+
+
+    const HANDOFF_TERMINAL_STATUSES = new Set([
+        'submitted_test', 'submitted', 'done', 'expired', 'error', 'submit_failed', 'not_enough_troops'
+    ]);
+
+    function getTransferableAttacks() {
+        const plan = sortPlanBySendTime(markExpiredAttacks());
+        return plan
+            .filter(p => p && p.ok && !HANDOFF_TERMINAL_STATUSES.has(p.status || 'open'))
+            .map((p, index) => {
+                const clean = Object.assign({}, p, {
+                    id: 'handoff-' + Date.now() + '-' + index,
+                    status: 'open',
+                    error: '',
+                    transferredAt: Date.now()
+                });
+                delete clean.failedAt;
+                delete clean.submitAt;
+                delete clean.startedAt;
+                delete clean.attackClickedAt;
+                delete clean.phase;
+                delete clean.done;
+                delete clean.openedByAngriffsplaner;
+                return clean;
+            });
+    }
+
+    function buildHandoffPackage() {
+        const plan = getTransferableAttacks();
+        return {
+            format: 'TWCC_ANGRIFFSPLANER_HANDOFF',
+            version: 1,
+            createdAt: new Date().toISOString(),
+            attackCount: plan.length,
+            plan,
+            villageMap: loadJson(STORAGE_KEY, {})
+        };
+    }
+
+    function validateHandoffPackage(data) {
+        if (!data || data.format !== 'TWCC_ANGRIFFSPLANER_HANDOFF' || !Array.isArray(data.plan)) {
+            throw new Error('Keine gültige TWCC-Übergabedatei');
+        }
+        const plan = data.plan.filter(p => p && p.ok && p.from && p.to && p.send).map((p, index) => ({
+            ...p,
+            id: 'import-' + Date.now() + '-' + index,
+            status: 'open',
+            error: ''
+        }));
+        if (!plan.length) throw new Error('Die Übergabe enthält keine offenen Angriffe');
+        return {
+            plan: sortPlanBySendTime(plan),
+            villageMap: data.villageMap && typeof data.villageMap === 'object' ? data.villageMap : {}
+        };
+    }
+
+    function getAttackMergeKey(attack) {
+        const parts = [
+            attack?.villageId || '',
+            String(attack?.from || '').trim(),
+            String(attack?.to || '').trim(),
+            String(attack?.targetId || '').trim(),
+            String(attack?.send || '').trim(),
+            normalizeUnit(attack?.unit || ''),
+            String(attack?.arrival || '').trim()
+        ];
+        return parts.join('||').toLowerCase();
+    }
+
+    function mergeImportedPlan(importedPlan) {
+        const existing = loadJson(PLAN_KEY, []);
+        const seen = new Set(existing.filter(p => p && p.ok).map(getAttackMergeKey));
+        const additions = [];
+        let duplicates = 0;
+
+        importedPlan.forEach((attack, index) => {
+            const key = getAttackMergeKey(attack);
+            if (seen.has(key)) {
+                duplicates++;
+                return;
+            }
+            seen.add(key);
+            additions.push({
+                ...attack,
+                id: 'merge-' + Date.now() + '-' + index,
+                status: 'open',
+                error: ''
+            });
+        });
+
+        return {
+            plan: sortPlanBySendTime(existing.concat(additions)),
+            added: additions.length,
+            duplicates
+        };
+    }
+
+    function downloadTextFile(filename, text) {
+        const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function showHandoffDialog(mode, initialText = '') {
+        document.getElementById('twcc-dsu-handoff-dialog')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'twcc-dsu-handoff-dialog';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:1000001;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
+        const isExport = mode === 'export';
+        overlay.innerHTML = `
+            <div style="width:min(760px,95vw);background:#f4e4bc;border:2px solid #6f4e2e;border-radius:10px;box-shadow:0 5px 24px rgba(0,0,0,.45);padding:12px;color:#2b1a08;font:13px Arial,sans-serif;">
+                <div style="font-weight:bold;font-size:16px;margin-bottom:8px;">${isExport ? 'Offene Angriffe übergeben' : 'Übergabe importieren'}</div>
+                <div style="margin-bottom:8px;">${isExport ? 'Diesen Text kopieren oder als Datei herunterladen und an den nächsten Spieler weitergeben.' : 'Übergabetext einfügen oder eine zuvor exportierte JSON-Datei auswählen.'}</div>
+                <textarea id="twcc-dsu-handoff-text" style="width:100%;height:330px;box-sizing:border-box;font:12px monospace;" placeholder="Übergabedaten hier einfügen...">${escapeHtml(initialText)}</textarea>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    ${isExport ? '<button id="twcc-dsu-handoff-copy">In Zwischenablage kopieren</button><button id="twcc-dsu-handoff-download">JSON herunterladen</button>' : '<button id="twcc-dsu-handoff-merge">Plan dazusetzen</button><button id="twcc-dsu-handoff-apply">Aktuellen Plan ersetzen</button><button id="twcc-dsu-handoff-file">JSON-Datei auswählen</button><input id="twcc-dsu-handoff-file-input" type="file" accept="application/json,.json,.txt" style="display:none;">'}
+                    <button id="twcc-dsu-handoff-close">Schließen</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        const textArea = document.getElementById('twcc-dsu-handoff-text');
+        document.getElementById('twcc-dsu-handoff-close').onclick = () => overlay.remove();
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+        if (isExport) {
+            document.getElementById('twcc-dsu-handoff-copy').onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(textArea.value);
+                    toast('Übergabe kopiert');
+                } catch (e) {
+                    textArea.focus();
+                    textArea.select();
+                    document.execCommand('copy');
+                    toast('Übergabe kopiert');
+                }
+            };
+            document.getElementById('twcc-dsu-handoff-download').onclick = () => {
+                const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                downloadTextFile('TWCC-Uebergabe-' + stamp + '.json', textArea.value);
+            };
+        } else {
+            const finishImport = (message) => {
+                localStorage.removeItem(ACTIVE_KEY);
+                setQueueRunning(false);
+                setQueuePaused(false);
+                localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
+                overlay.remove();
+                toast(message);
+                createWindow();
+                const win = document.getElementById('twcc-dsu-p1');
+                if (win) {
+                    win.style.display = '';
+                    win.dispatchEvent(new CustomEvent('twcc-handoff-imported'));
+                }
+            };
+
+            const readImport = () => {
+                const parsed = JSON.parse(textArea.value.trim());
+                return validateHandoffPackage(parsed);
+            };
+
+            const applyImport = () => {
+                try {
+                    const imported = readImport();
+                    if (!confirm(`Aktuellen Plan durch ${imported.plan.length} offene Angriffe ersetzen?`)) return;
+                    saveJson(PLAN_KEY, imported.plan);
+                    if (Object.keys(imported.villageMap).length) saveJson(STORAGE_KEY, imported.villageMap);
+                    finishImport(`${imported.plan.length} offene Angriffe importiert`);
+                } catch (e) {
+                    alert('Import fehlgeschlagen: ' + (e?.message || e));
+                }
+            };
+
+            const mergeImport = () => {
+                try {
+                    const imported = readImport();
+                    const merged = mergeImportedPlan(imported.plan);
+                    const currentCount = loadJson(PLAN_KEY, []).filter(p => p && p.ok).length;
+                    if (!confirm(`${merged.added} neue Angriffe zu den vorhandenen ${currentCount} Angriffen dazusetzen?${merged.duplicates ? `\n${merged.duplicates} doppelte Angriffe werden übersprungen.` : ''}`)) return;
+                    saveJson(PLAN_KEY, merged.plan);
+                    const currentMap = loadJson(STORAGE_KEY, {});
+                    saveJson(STORAGE_KEY, Object.assign({}, currentMap, imported.villageMap));
+                    finishImport(`${merged.added} ergänzt${merged.duplicates ? ` · ${merged.duplicates} doppelt` : ''}`);
+                } catch (e) {
+                    alert('Import fehlgeschlagen: ' + (e?.message || e));
+                }
+            };
+
+            document.getElementById('twcc-dsu-handoff-apply').onclick = applyImport;
+            document.getElementById('twcc-dsu-handoff-merge').onclick = mergeImport;
+            const fileInput = document.getElementById('twcc-dsu-handoff-file-input');
+            document.getElementById('twcc-dsu-handoff-file').onclick = () => fileInput.click();
+            fileInput.onchange = async () => {
+                const file = fileInput.files?.[0];
+                if (!file) return;
+                textArea.value = await file.text();
+            };
+        }
+    }
+
+    function exportOpenAttacks() {
+        const data = buildHandoffPackage();
+        if (!data.plan.length) return toast('Keine offenen Angriffe zum Exportieren');
+        showHandoffDialog('export', JSON.stringify(data, null, 2));
+    }
+
+    function importOpenAttacks() {
+        showHandoffDialog('import');
     }
 
     function isAttackExpired(attack) {
@@ -269,7 +648,8 @@
     }
 
     function getNextOpenAttack() {
-        const plan = markExpiredAttacks();
+        const plan = sortPlanBySendTime(markExpiredAttacks());
+        saveJson(PLAN_KEY, plan);
         return plan.find(p => p.ok && (!p.status || p.status === 'open') && !isAttackExpired(p));
     }
 
@@ -332,6 +712,7 @@
     }
 
     function startQueue() {
+        if (!isAutomationEnabled()) return toast('Automatik ist deaktiviert');
         setQueueRunning(true);
         setQueuePaused(false);
 
@@ -352,6 +733,7 @@
     }
 
     function resumeQueue() {
+        if (!isAutomationEnabled()) return toast('Automatik ist deaktiviert');
         setQueuePaused(false);
         setQueueRunning(true);
         markExpiredAttacks();
@@ -360,6 +742,7 @@
     }
 
     function stopQueue() {
+        localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
         setQueueRunning(false);
         setQueuePaused(false);
         clearPhase2Timer?.();
@@ -367,9 +750,9 @@
     }
 
     function queueTick(reason = 'tick') {
-        log('Angriffe tick:', reason, { running: isQueueRunning(), paused: isQueuePaused(), stats: getQueueStats() });
+        log('Angriffe tick:', reason, { enabled: isAutomationEnabled(), running: isQueueRunning(), paused: isQueuePaused(), stats: getQueueStats() });
 
-        if (!isQueueRunning() || isQueuePaused()) return;
+        if (!isAutomationEnabled() || !isQueueRunning() || isQueuePaused()) return;
 
         const active = loadJson(ACTIVE_KEY, null);
         if (active && ['phase1-auto', 'confirm-opened', 'confirm-ready'].includes(active.phase)) {
@@ -380,7 +763,8 @@
         const next = getNextOpenAttack();
         if (!next) {
             setQueueRunning(false);
-            toast('Angriffe fertig: keine offenen Angriffe');
+            localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
+            toast('Angriffe fertig: Automatik deaktiviert');
             log('Angriffe fertig');
             return;
         }
@@ -548,6 +932,7 @@
 
         const active = loadJson(ACTIVE_KEY, null);
         if (!active || active.phase !== 'phase1-auto') return;
+        if (!isAutomationEnabled()) return;
 
         if (active.done) return;
 
@@ -845,19 +1230,27 @@
                     <button id="twcc-dsu-scan">Eigene Dörfer scannen</button>
                     <button id="twcc-dsu-showmap">Village-Map anzeigen</button>
                     <button id="twcc-dsu-start">Angriff vorbereiten</button>
-                    <button id="twcc-dsu-queue-start">Angriffe starten</button>
-                    <button id="twcc-dsu-queue-pause">Pause</button>
-                    <button id="twcc-dsu-queue-resume">Fortsetzen</button>
-                    <button id="twcc-dsu-queue-stop">Angriffe Stop</button>
                     <button id="twcc-dsu-resetstatus">Status zurücksetzen</button>
+                    <button id="twcc-dsu-handoff-export">Offene exportieren</button>
+                    <button id="twcc-dsu-handoff-import">Übergabe importieren</button>
                     <button id="twcc-dsu-clear">Daten löschen</button>
                     <span id="twcc-dsu-status" style="margin-left:10px;font-weight:bold;"></span>
                 </div>
 
-                <div style="background:#fff8e8;border:1px solid #c7a76b;border-radius:6px;padding:8px;margin-bottom:8px;">
-                    <b>Vorlagen-Mapping:</b>
-                    Ramme/Katapult → volle off · AG → AG1 · Axt → Fake
-                </div>
+                <details style="background:#fff8e8;border:1px solid #c7a76b;border-radius:6px;padding:8px;margin-bottom:8px;">
+                    <summary style="cursor:pointer;font-weight:bold;">Vorlagen und Vorwarnung einstellen</summary>
+                    <div id="twcc-dsu-template-settings" style="display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:6px;margin-top:8px;"></div>
+                    <div style="border-top:1px solid #c7a76b;margin-top:9px;padding-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <label><input id="twcc-dsu-sound-enabled" type="checkbox"> Warnung aktiv</label>
+                        <label>Vorwarnung <input id="twcc-dsu-sound-seconds" type="number" min="0" max="3600" style="width:70px;"> Sek.</label>
+                        <label>Text <input id="twcc-dsu-warning-text" type="text" maxlength="160" placeholder="Piep oder gesprochener Text" style="width:220px;"></label>
+                        <label>Pieptöne <input id="twcc-dsu-sound-count" type="number" min="1" max="10" style="width:55px;" title="Wird nur verwendet, wenn als Text Piep eingetragen ist"></label>
+                        <label>Lautstärke <input id="twcc-dsu-sound-volume" type="range" min="0" max="1" step="0.05"></label>
+                        <label>Tonhöhe <input id="twcc-dsu-sound-frequency" type="number" min="150" max="2500" style="width:75px;" title="Wird nur verwendet, wenn als Text Piep eingetragen ist"> Hz</label>
+                        <button id="twcc-dsu-sound-test">Warnung testen</button>
+                        <button id="twcc-dsu-settings-save">Einstellungen speichern</button>
+                    </div>
+                </details>
 
                 <textarea id="twcc-dsu-text" style="width:100%;height:170px;" placeholder="DS-Ultimate Copy-Liste hier einfügen..."></textarea>
 
@@ -877,9 +1270,49 @@
 
         let currentPlan = loadJson(PLAN_KEY, []);
 
+        const templateSettings = document.getElementById('twcc-dsu-template-settings');
+        const templateMap = getTemplateMap();
+        templateSettings.innerHTML = TEMPLATE_DEFINITIONS.map(def => `
+            <label style="display:flex;justify-content:space-between;gap:6px;align-items:center;">
+                <span>${escapeHtml(def.label)}</span>
+                <input class="twcc-dsu-template-input" data-unit="${escapeHtml(def.key)}" value="${escapeHtml(templateMap[def.key] || '')}" style="width:125px;">
+            </label>`).join('');
+
+        const soundSettings = getSoundSettings();
+        document.getElementById('twcc-dsu-sound-enabled').checked = !!soundSettings.enabled;
+        document.getElementById('twcc-dsu-sound-seconds').value = String(soundSettings.secondsBefore);
+        document.getElementById('twcc-dsu-warning-text').value = String(soundSettings.warningText ?? 'Piep');
+        document.getElementById('twcc-dsu-sound-count').value = String(soundSettings.beepCount);
+        document.getElementById('twcc-dsu-sound-volume').value = String(soundSettings.volume);
+        document.getElementById('twcc-dsu-sound-frequency').value = String(soundSettings.frequency);
+
+        function collectSoundSettings() {
+            return {
+                enabled: document.getElementById('twcc-dsu-sound-enabled').checked,
+                secondsBefore: Math.max(0, Math.min(3600, Number(document.getElementById('twcc-dsu-sound-seconds').value) || 0)),
+                warningText: document.getElementById('twcc-dsu-warning-text').value.trim(),
+                beepCount: Math.max(1, Math.min(10, Number(document.getElementById('twcc-dsu-sound-count').value) || 2)),
+                volume: Math.max(0, Math.min(1, Number(document.getElementById('twcc-dsu-sound-volume').value) || 0)),
+                frequency: Math.max(150, Math.min(2500, Number(document.getElementById('twcc-dsu-sound-frequency').value) || 880))
+            };
+        }
+
+        document.getElementById('twcc-dsu-sound-test').onclick = () => playWarningSound(collectSoundSettings());
+        document.getElementById('twcc-dsu-settings-save').onclick = () => {
+            const nextMap = {};
+            document.querySelectorAll('.twcc-dsu-template-input').forEach(input => {
+                nextMap[input.dataset.unit] = input.value.trim();
+            });
+            setTemplateMap(nextMap);
+            setSoundSettings(collectSoundSettings());
+            toast('Vorlagen und Warnung gespeichert');
+            refreshPreview();
+        };
+
         function refreshPreview() {
             markExpiredAttacks();
-            currentPlan = loadJson(PLAN_KEY, currentPlan || []);
+            currentPlan = sortPlanBySendTime(loadJson(PLAN_KEY, currentPlan || []));
+            saveJson(PLAN_KEY, currentPlan);
             document.getElementById('twcc-dsu-preview').innerHTML = renderPreview(currentPlan);
 
             document.querySelectorAll('.twcc-dsu-open').forEach(btn => {
@@ -890,6 +1323,15 @@
             const bad = currentPlan.length - ok;
             const missing = currentPlan.filter(p => p.ok && !loadJson(STORAGE_KEY, {})[p.from]).length;
             document.getElementById('twcc-dsu-status').textContent = `${ok} erkannt, ${bad} Fehler, ${missing} ohne village_id`;
+        }
+
+        if (!win._twccHandoffListener) {
+            win._twccHandoffListener = true;
+            win.addEventListener('twcc-handoff-imported', () => {
+                currentPlan = loadJson(PLAN_KEY, []);
+                textarea.value = '';
+                refreshPreview();
+            });
         }
 
         document.getElementById('twcc-dsu-close').onclick = () => win.style.display = 'none';
@@ -906,10 +1348,8 @@
         };
 
         document.getElementById('twcc-dsu-start').onclick = startNextPhase1;
-        document.getElementById('twcc-dsu-queue-start').onclick = startQueue;
-        document.getElementById('twcc-dsu-queue-pause').onclick = pauseQueue;
-        document.getElementById('twcc-dsu-queue-resume').onclick = resumeQueue;
-        document.getElementById('twcc-dsu-queue-stop').onclick = stopQueue;
+        document.getElementById('twcc-dsu-handoff-export').onclick = exportOpenAttacks;
+        document.getElementById('twcc-dsu-handoff-import').onclick = importOpenAttacks;
 
         document.getElementById('twcc-dsu-resetstatus').onclick = () => {
             const plan = loadJson(PLAN_KEY, []).map(p => p.ok ? Object.assign({}, p, { status: 'open', error: '' }) : p);
@@ -917,6 +1357,7 @@
             localStorage.removeItem(ACTIVE_KEY);
             setQueueRunning(false);
             setQueuePaused(false);
+            localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
             currentPlan = plan;
             refreshPreview();
             toast('Status zurückgesetzt');
@@ -930,6 +1371,9 @@
             localStorage.removeItem(ACTIVE_KEY);
             localStorage.removeItem(QUEUE_KEY);
             localStorage.removeItem(QUEUE_PAUSE_KEY);
+            localStorage.removeItem(AUTOMATION_ENABLED_KEY);
+            localStorage.removeItem(TEMPLATE_MAP_KEY);
+            localStorage.removeItem(SOUND_SETTINGS_KEY);
             currentPlan = [];
             document.getElementById('twcc-dsu-status').textContent = 'gelöscht';
             document.getElementById('twcc-dsu-preview').innerHTML = '';
@@ -1014,6 +1458,8 @@
     const PHASE2_STATE = {
         armed: false,
         timeout: null,
+        warningTimeout: null,
+        warnedAttackId: null,
         raf: null,
         tick: null
     };
@@ -1279,6 +1725,11 @@
             clearTimeout(PHASE2_STATE.timeout);
             PHASE2_STATE.timeout = null;
         }
+        if (PHASE2_STATE.warningTimeout) {
+            clearTimeout(PHASE2_STATE.warningTimeout);
+            PHASE2_STATE.warningTimeout = null;
+        }
+        PHASE2_STATE.warnedAttackId = null;
         if (PHASE2_STATE.raf) {
             cancelAnimationFrame(PHASE2_STATE.raf);
             PHASE2_STATE.raf = null;
@@ -1297,6 +1748,10 @@
             if (status) status.textContent = `Precision aktiv · Rest ${Math.round(rest)} ms · Server-ms ${nowServer % 1000}`;
 
             if (rest <= 0) {
+                if (!isAutomationEnabled()) {
+                    clearPhase2Timer();
+                    return;
+                }
                 PHASE2_STATE.armed = false;
 
                 const before = getCurrentServerMs();
@@ -1367,6 +1822,7 @@
 
     function armPhase2Timer() {
         clearPhase2Timer();
+        if (!isAutomationEnabled()) return toast('Automatik ist deaktiviert');
 
         const active = loadJson(ACTIVE_KEY, null);
         if (!active) return toast('Kein aktiver Angriff gefunden');
@@ -1394,6 +1850,22 @@
         }
 
         PHASE2_STATE.armed = true;
+
+        const sound = getSoundSettings();
+        const warningMs = Math.max(0, Number(sound.secondsBefore) || 0) * 1000;
+        const warningDelay = delay - warningMs;
+        const triggerWarning = () => {
+            if (!PHASE2_STATE.armed || !isAutomationEnabled()) return;
+            const current = loadJson(ACTIVE_KEY, null);
+            if (!current || current.id !== active.id || PHASE2_STATE.warnedAttackId === active.id) return;
+            PHASE2_STATE.warnedAttackId = active.id;
+            playWarningSound(sound);
+            toast(`Vorwarnung: Angriff in ${Math.max(0, Math.round((sendMs - getCurrentServerMs()) / 1000))} Sekunden`);
+        };
+        if (sound.enabled && warningMs > 0) {
+            if (warningDelay > 0) PHASE2_STATE.warningTimeout = setTimeout(triggerWarning, warningDelay);
+            else if (delay > 0) setTimeout(triggerWarning, 50);
+        }
 
         const prepareMs = 120;
         const waitMs = Math.max(0, delay - prepareMs);
@@ -1467,9 +1939,6 @@
                         <button id="twcc-dsu-exec-manual">Jetzt senden</button>
                         <button id="twcc-dsu-exec-arm">Abschickzeit aktiv</button>
                         <button id="twcc-dsu-exec-stop">Timer Stop</button>
-                        <button id="twcc-dsu-exec-pause">Pause</button>
-                        <button id="twcc-dsu-exec-resume">Fortsetzen</button>
-                        <button id="twcc-dsu-exec-qstop">Angriffe Stop</button>
                     </div>
 
                     <pre id="twcc-dsu-exec-debug" style="margin-top:10px;background:#2f1d07;color:#f8e7bd;padding:8px;border-radius:6px;max-height:120px;overflow:auto;white-space:pre-wrap;"></pre>
@@ -1505,9 +1974,6 @@
                 document.getElementById('twcc-dsu-exec-status').textContent = 'Status: Timer gestoppt';
                 toast('Timer gestoppt');
             };
-            document.getElementById('twcc-dsu-exec-pause').onclick = pauseQueue;
-            document.getElementById('twcc-dsu-exec-resume').onclick = resumeQueue;
-            document.getElementById('twcc-dsu-exec-qstop').onclick = stopQueue;
 
             document.getElementById('twcc-dsu-default-ms').value = String(getTimingDefaultMs());
             document.getElementById('twcc-dsu-offset-ms').value = String(getTimingOffsetMs());
@@ -1559,7 +2025,6 @@
                     `confirmButton=${!!findConfirmButton()}\n` +
                     `active.phase=${activeNow.phase}\n` +
                     `active.status=${activeNow.status || '-'}\n` +
-                    `angriffe.laufen=${isQueueRunning()} pause=${isQueuePaused()}\n` +
                     `stats=${JSON.stringify(getQueueStats())}\n` +
                     `timing=${timing ? JSON.stringify({target: timing.dateDisplay, click: formatServerTime(timing.clickMs), offset: timing.offset, explicitMs: timing.explicitMs}) : '-'}`;
             }
@@ -1571,9 +2036,9 @@
             PHASE2_STATE.tick = setInterval(update, 100);
         }
 
-        if (isQueueRunning() && !isQueuePaused() && !PHASE2_STATE.armed) {
+        if (isAutomationEnabled() && isQueueRunning() && !isQueuePaused() && !PHASE2_STATE.armed) {
             const status = document.getElementById('twcc-dsu-exec-status');
-            if (status) status.textContent = 'Angriffe aktiv · Timer wird automatisch scharf gestellt';
+            if (status) status.textContent = 'Timer wird vorbereitet';
             setTimeout(armPhase2Timer, 700);
         }
     }
@@ -1597,6 +2062,13 @@
     }
 
     function init() {
+        installHiddenHotkeys();
+        const navigation = performance.getEntriesByType?.('navigation')?.[0];
+        if (navigation?.type === 'reload' && !loadJson(ACTIVE_KEY, null)) {
+            localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
+            setQueueRunning(false);
+            setQueuePaused(false);
+        }
         maybeAutoCloseThisTab();
         addLauncher();
 
@@ -1613,7 +2085,7 @@
             if (getScreen() === 'place' && getParams().get('try') === 'confirm') {
                 const active = loadJson(ACTIVE_KEY, null);
                 if (active) buildAngriffsplanerPanel(active);
-            } else if (isQueueRunning() && !isQueuePaused()) {
+            } else if (isAutomationEnabled() && isQueueRunning() && !isQueuePaused()) {
                 const active = loadJson(ACTIVE_KEY, null);
                 if (!active) queueTick('init-continue');
             }
