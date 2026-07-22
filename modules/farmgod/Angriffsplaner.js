@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.1.8
+// @version      1.1.9
 // @description  Angriffsplaner mit versteckter Hotkey-Automatik, Übergabe-Export, Vorlagen-Mapping und Sprachwarnung
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
@@ -176,6 +176,8 @@
     let AUDIO_CONTEXT = null;
     let AUDIO_HOST_HEARTBEAT = null;
     let AUDIO_SENDTIME_WATCHDOG = null;
+    let AUDIO_EVENT_POLL = null;
+    let LAST_AUDIO_EVENT_ID = null;
 
     function unlockAudio() {
         try {
@@ -217,6 +219,7 @@
             if (isAutomationEnabled()) writeAudioHost();
         }, 2000);
         startSendTimeWarningWatchdog();
+        startAudioEventPoll();
     }
 
     function getAudioHost() {
@@ -336,16 +339,32 @@
         playWarningSoundLocal(settings);
     }
 
+    function handleAudioEventPayload(payload) {
+        if (!payload || !payload.id || payload.id === LAST_AUDIO_EVENT_ID) return false;
+        if (payload.source === AUDIO_TAB_ID || Date.now() - Number(payload.at || 0) > 10000) return false;
+        LAST_AUDIO_EVENT_ID = payload.id;
+        playWarningSoundLocal(payload.settings || getSoundSettings());
+        log('Audio-Warnung im Haupt-Tab abgespielt', { eventId: payload.id, source: payload.source });
+        return true;
+    }
+
     window.addEventListener('storage', event => {
         if (event.key !== AUDIO_EVENT_KEY || !event.newValue || !isCurrentAudioHost()) return;
         try {
-            const payload = JSON.parse(event.newValue);
-            if (!payload || payload.source === AUDIO_TAB_ID || Date.now() - Number(payload.at || 0) > 5000) return;
-            playWarningSoundLocal(payload.settings || getSoundSettings());
+            handleAudioEventPayload(JSON.parse(event.newValue));
         } catch (e) {
             log('Audio-Ereignis ungültig:', e);
         }
     });
+
+    function startAudioEventPoll() {
+        if (AUDIO_EVENT_POLL) clearInterval(AUDIO_EVENT_POLL);
+        AUDIO_EVENT_POLL = setInterval(() => {
+            if (!isCurrentAudioHost()) return;
+            const payload = loadJson(AUDIO_EVENT_KEY, null);
+            if (payload) handleAudioEventPayload(payload);
+        }, 150);
+    }
 
     function clearWarningFiredForAttack(attackId) {
         const fired = loadJson(WARNING_FIRED_KEY, null);
@@ -362,7 +381,7 @@
     }
 
     function checkWarningBySendTime() {
-        if (!isAutomationEnabled() || !isQueueRunning() || isQueuePaused()) return;
+        if (!isAutomationEnabled()) return;
         if (!isCurrentAudioHost()) return;
 
         const active = loadJson(ACTIVE_KEY, null);
@@ -2052,7 +2071,7 @@
             // Gemeinsame Kennzeichnung verhindert doppelte Warnungen aus Haupt- und Confirm-Tab.
             PHASE2_STATE.warnedAttackId = active.id;
             markWarningFired(active.id, warningTargetMs);
-            playWarningSoundLocal(sound);
+            playWarningSound(sound);
             toast(`Vorwarnung: Angriff in ${Math.max(0, Math.round(remaining / 1000))} Sekunden`);
             if (PHASE2_STATE.warningInterval) {
                 clearInterval(PHASE2_STATE.warningInterval);
