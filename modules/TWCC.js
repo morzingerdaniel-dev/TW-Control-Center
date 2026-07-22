@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Control Center
 // @namespace    http://tampermonkey.net/
-// @version      2.5.4
-// @description  TW Control Center v2.5.4 – Modulbereinigung und sichere Standardzustände
+// @version      2.6.0
+// @description  TW Control Center v2.6.0 – Modulbereinigung und sichere Standardzustände
 // @author       Daniel
 // @match        https://*.die-staemme.de/*
 // @match        https://*.tribalwars.de/*
@@ -30,7 +30,7 @@
     const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     win.TWCC_CoreInfo = Object.freeze({
         name: 'TW Control Center',
-        version: '2.5.3',
+        version: '2.6.0',
         phase: 'theme-engine-live'
     });
     const $ = win.jQuery || win.$;
@@ -42,7 +42,7 @@
 
     $.ajaxSetup({ cache: true });
 
-    const TWCC_VERSION = '2.5.3';
+    const TWCC_VERSION = '2.6.0';
     const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/morzingerdaniel-dev/TW-Control-Center/main/';
     const MODULE_BASE = GITHUB_RAW_BASE + 'modules/';
 
