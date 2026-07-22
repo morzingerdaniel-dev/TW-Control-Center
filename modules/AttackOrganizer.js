@@ -1,5 +1,5 @@
 /**
- * TWCC Attack Organizer v3.5
+ * TWCC Attack Organizer v3.6
  * Nur „Eintreffend“, frei sortierbare Buttons und explizite Aktion:
  * Status ersetzen oder Zusatz anhängen.
  */
@@ -18,6 +18,50 @@
     if (win.TWCC_AttackOrganizer && typeof win.TWCC_AttackOrganizer.destroy === 'function') {
         try { win.TWCC_AttackOrganizer.destroy(); } catch (e) {}
     }
+
+    const TEAMCODE_STORAGE_KEY = 'twcc_attack_organizer_team_config_v1';
+    const TEAMCODE_PREFIX = 'TWCCAO1:';
+
+    function safeJsonParse(value, fallback) {
+        try { return JSON.parse(value); } catch (e) { return fallback; }
+    }
+
+    function getStoredTeamConfig() {
+        const raw = localStorage.getItem(TEAMCODE_STORAGE_KEY);
+        const parsed = raw ? safeJsonParse(raw, null) : null;
+        return parsed && parsed.type === 'TWCC_AttackOrganizer_Settings' ? parsed : null;
+    }
+
+    function utf8ToBase64(value) {
+        const bytes = new TextEncoder().encode(String(value));
+        let binary = '';
+        bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+        return btoa(binary);
+    }
+
+    function base64ToUtf8(value) {
+        const binary = atob(String(value));
+        const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+    }
+
+    function encodeTeamCode(config) {
+        return TEAMCODE_PREFIX + utf8ToBase64(JSON.stringify(config));
+    }
+
+    function decodeTeamCode(code) {
+        const clean = String(code || '').trim();
+        if (!clean.startsWith(TEAMCODE_PREFIX)) {
+            throw new Error('Ungültiger Teamcode. Erwartet wird ein Code mit "' + TEAMCODE_PREFIX + '".');
+        }
+        const parsed = safeJsonParse(base64ToUtf8(clean.slice(TEAMCODE_PREFIX.length)), null);
+        if (!parsed || parsed.type !== 'TWCC_AttackOrganizer_Settings' || !parsed.settings) {
+            throw new Error('Der Teamcode enthält keine gültigen Attack-Organizer-Einstellungen.');
+        }
+        return parsed;
+    }
+
+    const storedTeamConfig = getStoredTeamConfig();
 
     const fallbackSettings = {
         0: ['[Gedefft]', 'Gedefft', 'green', 'white'],
@@ -61,15 +105,20 @@
         holder: ['#D3D3D3', '#BDB76B']
     };
 
-    // TWCC bereitet diese Werte über applyAttackOrganizerGlobals() vor.
-    // Nur falls nichts vorhanden ist, werden die Originalwerte verwendet.
-    const settings = (win.settings && Object.keys(win.settings).length)
-        ? win.settings
-        : fallbackSettings;
+    // Importierte Team-Einstellungen haben Vorrang. Ohne Import werden die
+    // von TWCC bereitgestellten Werte beziehungsweise die Originalwerte verwendet.
+    const settings = storedTeamConfig && storedTeamConfig.settings
+        ? storedTeamConfig.settings
+        : ((win.settings && Object.keys(win.settings).length) ? win.settings : fallbackSettings);
 
-    const colors = Object.assign({}, fallbackColors, win.colors || {});
-    const fontSize = Number(win.font_size) || 8;
-    const attackLayout = win.attack_layout || 'column';
+    const colors = Object.assign(
+        {},
+        fallbackColors,
+        win.colors || {},
+        storedTeamConfig && storedTeamConfig.colors ? storedTeamConfig.colors : {}
+    );
+    const fontSize = Number(storedTeamConfig && storedTeamConfig.fontSize) || Number(win.font_size) || 8;
+    const attackLayout = (storedTeamConfig && storedTeamConfig.attackLayout) || win.attack_layout || 'column';
 
     const buttonNames = $.map(settings, obj => obj[0]);
     const buttonIcons = $.map(settings, obj => obj[1]);
@@ -347,6 +396,88 @@
         document.head.appendChild(style);
     }
 
+    function buildCurrentTeamConfig() {
+        return {
+            type: 'TWCC_AttackOrganizer_Settings',
+            formatVersion: 1,
+            organizerVersion: '3.6.0-teamcode',
+            exportedAt: new Date().toISOString(),
+            settings: settings,
+            colors: colors,
+            fontSize: fontSize,
+            attackLayout: attackLayout
+        };
+    }
+
+    function showTeamCodeDialog() {
+        $('#twcc-ao-teamcode-dialog').remove();
+
+        const currentCode = encodeTeamCode(buildCurrentTeamConfig());
+        const $overlay = $('<div id="twcc-ao-teamcode-dialog"></div>').css({
+            position: 'fixed', inset: '0', background: 'rgba(0,0,0,.55)', zIndex: 999999,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '15px'
+        });
+        const $box = $('<div></div>').css({
+            width: 'min(720px, 96vw)', maxHeight: '90vh', overflow: 'auto',
+            background: '#f4e4bc', border: '2px solid #7d510f', borderRadius: '6px',
+            padding: '14px', color: '#2b1a08', boxShadow: '0 8px 28px rgba(0,0,0,.45)'
+        });
+        const $title = $('<div><strong>Attack Organizer – Teamcode</strong></div>').css({fontSize:'16px', marginBottom:'8px'});
+        const $hint = $('<div></div>').text('Export: Code kopieren und weitergeben. Import: erhaltenen Code einfügen und übernehmen.').css({marginBottom:'8px'});
+        const $area = $('<textarea spellcheck="false"></textarea>').val(currentCode).css({
+            width: '100%', minHeight: '190px', boxSizing: 'border-box', resize: 'vertical',
+            fontFamily: 'monospace', fontSize: '12px'
+        });
+        const $status = $('<div></div>').css({minHeight:'20px', marginTop:'8px', fontWeight:'bold'});
+        const $buttons = $('<div></div>').css({display:'flex', flexWrap:'wrap', gap:'6px', marginTop:'8px'});
+
+        const $copy = $('<button type="button" class="btn">Code kopieren</button>').on('click', async function () {
+            $area.val(encodeTeamCode(buildCurrentTeamConfig())).trigger('select');
+            try {
+                await navigator.clipboard.writeText($area.val());
+                $status.text('Teamcode wurde kopiert.').css('color', '#126b16');
+            } catch (e) {
+                document.execCommand('copy');
+                $status.text('Teamcode wurde markiert/kopiert.').css('color', '#126b16');
+            }
+        });
+
+        const $import = $('<button type="button" class="btn">Code importieren</button>').on('click', function () {
+            try {
+                const imported = decodeTeamCode($area.val());
+                localStorage.setItem(TEAMCODE_STORAGE_KEY, JSON.stringify(imported));
+                $status.text('Import erfolgreich. Die Seite wird neu geladen.').css('color', '#126b16');
+                setTimeout(function () { location.reload(); }, 350);
+            } catch (e) {
+                $status.text(e && e.message ? e.message : 'Import fehlgeschlagen.').css('color', '#a40000');
+            }
+        });
+
+        const $reset = $('<button type="button" class="btn">Teamcode-Einstellungen löschen</button>').on('click', function () {
+            localStorage.removeItem(TEAMCODE_STORAGE_KEY);
+            $status.text('Gespeicherte Team-Einstellungen gelöscht. Die Seite wird neu geladen.').css('color', '#126b16');
+            setTimeout(function () { location.reload(); }, 350);
+        });
+
+        const $close = $('<button type="button" class="btn">Schließen</button>').on('click', function () { $overlay.remove(); });
+        $buttons.append($copy, $import, $reset, $close);
+        $box.append($title, $hint, $area, $status, $buttons);
+        $overlay.append($box).on('click', function (e) { if (e.target === this) $overlay.remove(); });
+        $('body').append($overlay);
+    }
+
+    function ensureTeamCodeButton() {
+        if ($('#twcc-ao-teamcode-button').length) return;
+        const $button = $('<button id="twcc-ao-teamcode-button" type="button" class="btn">AO Teamcode</button>').css({
+            position: 'fixed', right: '10px', bottom: '10px', zIndex: 999998,
+            padding: '5px 9px', fontWeight: 'bold'
+        }).on('click.twccAO', function (event) {
+            event.preventDefault();
+            showTeamCodeDialog();
+        });
+        $('body').append($button);
+    }
+
     function init() {
         if (!document.body) {
             setTimeout(init, 100);
@@ -354,6 +485,7 @@
         }
 
         ensureButtonStyles();
+        ensureTeamCodeButton();
         scan();
 
         const Observer = win.MutationObserver || window.MutationObserver;
@@ -382,6 +514,7 @@
         $(document).off('.twccAO');
         $('.twcc-ao-button').off('.twccAO');
         $('.twcc-ao-buttons').remove();
+        $('#twcc-ao-teamcode-button, #twcc-ao-teamcode-dialog').remove();
         $('[data-twcc-ao-ready]').removeAttr('data-twcc-ao-ready');
         console.log('[TWCC Attack Organizer] beendet.');
     }
@@ -389,7 +522,7 @@
     win.TWCC_AttackOrganizerLoaded = true;
 
     win.TWCC_AttackOrganizer = {
-        version: '3.5.0-sortable-actions',
+        version: '3.6.0-teamcode',
         init,
         destroy,
         refresh: scan
