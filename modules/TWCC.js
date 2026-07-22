@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Control Center
 // @namespace    http://tampermonkey.net/
-// @version      2.5.3
-// @description  TW Control Center v2.5.3 – UI Polish, dynamische Themes und optimierte Live-Aktualisierung
+// @version      2.5.4
+// @description  TW Control Center v2.5.4 – Modulbereinigung und sichere Standardzustände
 // @author       Daniel
 // @match        https://*.die-staemme.de/*
 // @match        https://*.tribalwars.de/*
@@ -75,11 +75,10 @@
             dorfnotizVorlagen: { enabled: true, cacheBust: '' },
             signaturForumIgm: { enabled: true, cacheBust: '' },
             zustimmungsanzeige: { enabled: true, cacheBust: '' },
-            berichteFilter: { enabled: true, cacheBust: '' },
             attackOrganizer: { enabled: true, cacheBust: '' },
             dsUiExtended: { enabled: true, cacheBust: '' },
             dsSelectVillages: { enabled: true, cacheBust: '' },
-            attackTimerServerMs: { enabled: true, cacheBust: '' },
+            attackTimerServerMs: { enabled: false, cacheBust: '' },
             korrikarteProfiles: { enabled: true, cacheBust: '' }
         }
     };
@@ -222,6 +221,8 @@
 
     function ensureCoreModulesRegistered() {
         core.modules = core.modules || {};
+        // Entferntes Modul aus älteren gespeicherten Einstellungen bereinigen.
+        delete core.modules.berichteFilter;
         Object.entries(DEFAULT_CORE.modules).forEach(([id, defaults]) => {
             core.modules[id] = mergeDeep(deepClone(defaults), core.modules[id] || {});
         });
@@ -299,34 +300,6 @@
                     try { ToolboxCore.Notify.info('Angriffsplaner wird geladen. Button unten rechts öffnen.'); } catch(e) {}
                 }
             }
-        },
-
-        berichteFilter: {
-            id: 'berichteFilter',
-            name: 'Verbesserte Berichtefilter',
-            icon: '📨',
-            category: 'overview',
-            categoryName: 'Übersicht',
-            description: 'Fügt auf der Berichteübersicht zusätzliche Filter hinzu. Filter können im TWCC angepasst werden.',
-            author: 'ners',
-            version: '0.2',
-            source: 'external',
-            loader: 'jquery',
-            scriptUrl: 'https://media.innogames.com/com_DS_DE/Scriptdatenbank/userscript_main/430_verbesserte_berichtefilter_ners.js',
-            started: false,
-            matchesPage() {
-                return location.href.includes('screen=report');
-            },
-            init() {
-                if (this.started) return;
-                if (!this.matchesPage()) {
-                    console.log('[TW Control Center] Verbesserte Berichtefilter aktiv, aber nur auf Berichte-Seiten geladen.');
-                    return;
-                }
-                this.started = true;
-                initBerichteFilterModule();
-            },
-            openSettings() { createBerichteFilterPanel(); }
         },
 
         zustimmungsanzeige: {
@@ -623,6 +596,86 @@
         }
     };
 
+    // ==========================================================
+    // ZENTRALE MODUL-INFORMATIONEN
+    // ==========================================================
+    // Nur die Texte zwischen den Backticks (`...`) bearbeiten.
+    // Externe Module werden dafür NICHT gelesen und müssen NICHT verändert werden.
+    const TOOL_INFO = Object.freeze({
+        fakeGeneratorExternal: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUM FAKEGENERATOR REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUM FAKEGENERATOR REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUM FAKEGENERATOR REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUM FAKEGENERATOR REIN`
+        },
+        angriffsplanerExternal: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUM ANGRIFFSPLANER REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUM ANGRIFFSPLANER REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUM ANGRIFFSPLANER REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUM ANGRIFFSPLANER REIN`
+        },
+        zustimmungsanzeige: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUR ZUSTIMMUNGSANZEIGE REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUR ZUSTIMMUNGSANZEIGE REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUR ZUSTIMMUNGSANZEIGE REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUR ZUSTIMMUNGSANZEIGE REIN`
+        },
+        signaturForumIgm: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUR SIGNATUR FORUM/IGM REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUR SIGNATUR FORUM/IGM REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUR SIGNATUR FORUM/IGM REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUR SIGNATUR FORUM/IGM REIN`
+        },
+        dorfnotizVorlagen: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZU DEN DORFNOTIZ-VORLAGEN REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZU DEN DORFNOTIZ-VORLAGEN REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZU DEN DORFNOTIZ-VORLAGEN REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZU DEN DORFNOTIZ-VORLAGEN REIN`
+        },
+        farmGodExternal: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZU FARMGOD REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZU FARMGOD REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZU FARMGOD REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZU FARMGOD REIN`
+        },
+        botGuard: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUM BOT-SCHUTZ REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUM BOT-SCHUTZ REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUM BOT-SCHUTZ REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUM BOT-SCHUTZ REIN`
+        },
+        attackOrganizer: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUM ATTACK ORGANIZER REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUM ATTACK ORGANIZER REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUM ATTACK ORGANIZER REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUM ATTACK ORGANIZER REIN`
+        },
+        dsUiExtended: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZU DS UI ERWEITERT REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZU DS UI ERWEITERT REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZU DS UI ERWEITERT REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZU DS UI ERWEITERT REIN`
+        },
+        attackTimerServerMs: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZUM DS ANGRIFF TIMER SERVERMS REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZUM DS ANGRIFF TIMER SERVERMS REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZUM DS ANGRIFF TIMER SERVERMS REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZUM DS ANGRIFF TIMER SERVERMS REIN`
+        },
+        korrikarteProfiles: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZU DEN KORRIKARTE-PROFILEN REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZU DEN KORRIKARTE-PROFILEN REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZU DEN KORRIKARTE-PROFILEN REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZU DEN KORRIKARTE-PROFILEN REIN`
+        },
+        dsSelectVillages: {
+            description: `HIER GEHÖRT DEINE BESCHREIBUNG ZU DSSELECTVILLAGES REIN`,
+            instructions: `HIER GEHÖRT DEINE ANLEITUNG ZU DSSELECTVILLAGES REIN`,
+            tips: `HIER GEHÖREN DEINE TIPPS ZU DSSELECTVILLAGES REIN`,
+            notes: `HIER GEHÖREN WICHTIGE HINWEISE ZU DSSELECTVILLAGES REIN`
+        }
+    });
+
     const MODULE_CONFLICTS = {
         farmGodExternal: ['fakeGeneratorExternal'],
         fakeGeneratorExternal: ['farmGodExternal']
@@ -863,6 +916,13 @@
         .twx-status { font-size:11px; opacity:.85; margin-top:2px; }
         .twx-fav { font-size:16px; padding:3px 5px; }
         .twx-info-box { line-height:1.45; }
+        .twcc-info-section { margin:10px 0; padding:10px; border:1px solid var(--twcc-window-border); border-radius:7px; background:var(--twcc-overlay-light); }
+        .twcc-info-section h4 { margin:0 0 7px; }
+        .twcc-info-text { white-space:pre-wrap; line-height:1.55; }
+        .twcc-general-brand { text-align:center; padding:12px 10px 16px; margin-bottom:12px; border:1px solid var(--twcc-window-border); border-radius:10px; background:var(--twcc-overlay-light); }
+        .twcc-general-logo { display:block; width:min(250px,80%); max-height:180px; object-fit:contain; margin:0 auto 8px; filter:drop-shadow(0 7px 14px rgba(0,0,0,.28)); }
+        .twcc-general-title { font-size:22px; font-weight:800; color:var(--twcc-window-text-strong); }
+        .twcc-general-version { margin-top:4px; font-size:12px; opacity:.78; }
         .twx-pill { display:inline-block; padding:2px 6px; border-radius:10px; background:var(--twcc-section-bg); margin:2px 4px 2px 0; font-size:11px; }
         .twx-switch { position:relative; display:inline-block; width:58px; height:26px; }
         .twx-switch input { opacity:0; width:0; height:0; }
@@ -1514,7 +1574,6 @@
         korrikarteProfiles: { name: 'Korrikarte Profile', ids: ['kori-gui-panel'] },
         fakeGeneratorExternal: { name: 'FakeGenerator Extern', ids: ['twx-window-fakegenerator-external-info'] },
         farmGodExternal: { name: 'FarmGod', ids: ['twx-window-farmGod-external-info'] },
-        berichteFilter: { name: 'Verbesserte Berichtefilter', ids: ['twx-window-berichte-filter-settings'] },
         zustimmungsanzeige: { name: 'Zustimmungsanzeige', ids: ['twx-window-zustimmungsanzeige-info'] },
         signaturForumIgm: { name: 'Signatur Forum/IGM', ids: ['twx-window-signatur-settings'] },
         dorfnotizVorlagen: { name: 'Dorfnotiz-Vorlagen', ids: ['twx-window-dorfnotiz-settings'] },
@@ -1825,7 +1884,15 @@
 
                             <section class="twcc-settings-page" data-twcc-page-content="general">
                                 <h3 style="margin-top:0;">Allgemein</h3>
-                                <div class="twcc-theme-card">Dieser Bereich ist im Test noch ein Platzhalter.</div>
+                                <div class="twcc-general-brand">
+                                    <img class="twcc-general-logo" src="https://raw.githubusercontent.com/morzingerdaniel-dev/TW-Control-Center/main/assets/twcc-logo.png.gif" alt="TWCC Logo">
+                                    <div class="twcc-general-title">TW Control Center</div>
+                                    <div class="twcc-general-version">Version ${escapeHtml(TWCC_VERSION)} · Modular Control Center for Tribal Wars</div>
+                                </div>
+                                <div class="twcc-theme-card">
+                                    <b>Allgemeine Einstellungen</b>
+                                    <p class="twcc-settings-note" style="margin-bottom:0;">Hier werden künftig zentrale TWCC-Einstellungen gesammelt, die nicht zu einem einzelnen Modul oder Theme gehören.</p>
+                                </div>
                             </section>
 
                             <section class="twcc-settings-page" data-twcc-page-content="about">
@@ -2332,7 +2399,7 @@
     function normalizeCategory(mod) {
         const id = mod.id;
         if (id === 'attackOrganizer' || id === 'attackTimerServerMs' || id === 'farmGodExternal' || id === 'fakeGeneratorExternal' || id === 'angriffsplanerExternal') return 'troopMovement';
-        if (id === 'dorfnotizVorlagen' || id === 'zustimmungsanzeige' || id === 'berichteFilter') return 'villages';
+        if (id === 'dorfnotizVorlagen' || id === 'zustimmungsanzeige') return 'villages';
         if (id === 'signaturForumIgm') return 'communication';
         if (id === 'botGuard') return 'security';
         return mod.category || 'system';
@@ -2675,8 +2742,7 @@
             botGuardConfig: typeof botGuardConfig !== 'undefined' ? botGuardConfig : null,
             koriConfig: typeof koriConfig !== 'undefined' ? koriConfig : null,
             dorfnotizConfig: typeof dorfnotizConfig !== 'undefined' ? dorfnotizConfig : null,
-            signaturConfig: typeof signaturConfig !== 'undefined' ? signaturConfig : null,
-            berichteFilterConfig: typeof berichteFilterConfig !== 'undefined' ? berichteFilterConfig : null
+            signaturConfig: typeof signaturConfig !== 'undefined' ? signaturConfig : null
         };
         return JSON.stringify(data, null, 2);
     }
@@ -2698,128 +2764,9 @@
         if (data.koriConfig && typeof KORI_KEY !== 'undefined') saveJson(KORI_KEY, data.koriConfig);
         if (data.dorfnotizConfig && typeof DORFNOTIZ_KEY !== 'undefined') saveJson(DORFNOTIZ_KEY, data.dorfnotizConfig);
         if (data.signaturConfig && typeof SIGNATUR_KEY !== 'undefined') saveJson(SIGNATUR_KEY, data.signaturConfig);
-        if (data.berichteFilterConfig && typeof BERICHTE_FILTER_KEY !== 'undefined') saveJson(BERICHTE_FILTER_KEY, data.berichteFilterConfig);
 
         ToolboxCore.Notify.success('TWCC Einstellungen importiert');
         location.reload();
-    }
-
-    const BERICHTE_FILTER_KEY = 'TWCC_BERICHTE_FILTER_V1';
-    const DEFAULT_BERICHTE_FILTER = {
-        addButtonsOnTop: true,
-        filters: [
-            { title: 'Handel', regex: 'Angebot|beliefert', defaultChecked: true },
-            { title: 'Unterstützung', regex: 'Unterstützung|unterstützt|stationiert', defaultChecked: false },
-            { title: 'Account-Manager', regex: 'Warteschlange', defaultChecked: true },
-            { title: 'besucht', regex: 'besucht', defaultChecked: false },
-            { title: 'Raubzug', regex: 'plündert', defaultChecked: true },
-            { title: 'Festung', regex: 'Festung', defaultChecked: true }
-        ]
-    };
-
-    let berichteFilterConfig = loadJson(BERICHTE_FILTER_KEY, DEFAULT_BERICHTE_FILTER);
-
-    function applyBerichteFilterGlobals() {
-        berichteFilterConfig = mergeDeep(deepClone(DEFAULT_BERICHTE_FILTER), berichteFilterConfig || {});
-
-        class TWCC_ReportFilter {
-            constructor(title, regEx, defaultChecked) {
-                this.title = title;
-                this.regEx = new RegExp(regEx);
-                this.defaultChecked = !!defaultChecked;
-            }
-        }
-
-        const FILTERS = (berichteFilterConfig.filters || []).map(f =>
-            new TWCC_ReportFilter(f.title || '', f.regex || '', !!f.defaultChecked)
-        );
-
-        win.reportFilterSettings = {
-            FILTERS: FILTERS,
-            ADD_BUTTONS_ON_TOP: !!berichteFilterConfig.addButtonsOnTop
-        };
-    }
-
-    function initBerichteFilterModule() {
-        applyBerichteFilterGlobals();
-        if (win.$ && win.$.ajaxSetup) win.$.ajaxSetup({ cache: true });
-        loadExternalScript(Modules.berichteFilter.scriptUrl, 'berichteFilter', 'jquery');
-        ToolboxCore.Log.add('berichteFilter', 'Verbesserte Berichtefilter geladen');
-    }
-
-    function createBerichteFilterPanel() {
-        berichteFilterConfig = mergeDeep(deepClone(DEFAULT_BERICHTE_FILTER), berichteFilterConfig || {});
-
-        const content = `
-            <div class="twx-info-box">
-                <h3 style="margin-top:0;">📨 Verbesserte Berichtefilter</h3>
-                <div><span class="twx-pill">Berichte</span><span class="twx-pill">Filter</span><span class="twx-pill">RegExp</span></div>
-
-                <div class="twx-tool-section">
-                    <h4>Allgemein</h4>
-                    <label>
-                        <input id="bf-top" type="checkbox" ${berichteFilterConfig.addButtonsOnTop ? 'checked' : ''}>
-                        Buttons oben anzeigen
-                    </label>
-                </div>
-
-                <div class="twx-tool-section">
-                    <h4>Filter JSON</h4>
-                    <textarea id="bf-json" class="twx-textarea" spellcheck="false">${escapeHtml(JSON.stringify(berichteFilterConfig.filters || [], null, 2))}</textarea>
-                    <div class="twx-small">
-                        Format: <code>{ "title": "Handel", "regex": "Angebot|beliefert", "defaultChecked": true }</code>
-                    </div>
-                </div>
-
-                <div class="ao-actions">
-                    <button class="twx-btn" id="bf-save">Speichern & neu laden</button>
-                    <button class="twx-btn" id="bf-reset">Reset</button>
-                </div>
-            </div>
-        `;
-
-        const panel = ToolboxCore.Window.create({
-            id: 'berichte-filter-settings',
-            title: '📨 Verbesserte Berichtefilter',
-            width: 760,
-            height: 620,
-            content
-        });
-        ToolboxCore.Window.toggle('berichte-filter-settings', true);
-
-        document.getElementById('bf-save')?.addEventListener('click', () => {
-            let filters;
-            try {
-                filters = JSON.parse(document.getElementById('bf-json').value || '[]');
-                if (!Array.isArray(filters)) throw new Error('Filter müssen ein Array sein');
-                filters.forEach((f, i) => {
-                    if (!f.title || typeof f.regex !== 'string') throw new Error('Filter ' + (i + 1) + ' ist ungültig');
-                    new RegExp(f.regex);
-                    f.defaultChecked = !!f.defaultChecked;
-                });
-            } catch (e) {
-                ToolboxCore.Notify.error('Filter JSON ungültig: ' + e.message);
-                return;
-            }
-
-            berichteFilterConfig = {
-                addButtonsOnTop: document.getElementById('bf-top').checked,
-                filters
-            };
-
-            saveJson(BERICHTE_FILTER_KEY, berichteFilterConfig);
-            ToolboxCore.Notify.success('Berichtefilter gespeichert');
-            location.reload();
-        });
-
-        document.getElementById('bf-reset')?.addEventListener('click', () => {
-            if (!confirm('Berichtefilter zurücksetzen?')) return;
-            berichteFilterConfig = deepClone(DEFAULT_BERICHTE_FILTER);
-            saveJson(BERICHTE_FILTER_KEY, berichteFilterConfig);
-            location.reload();
-        });
-
-        return panel;
     }
 
     function initZustimmungsanzeigeModule() {
@@ -3369,33 +3316,78 @@
         });
     }
 
+    function twccInfoValue(info, key, fallback) {
+        const value = String(info?.[key] ?? '').trim();
+        return value || fallback;
+    }
+
     function createModuleInfoPanel(mod) {
-        const state = getModuleState(mod.id);
-        const pageOk = typeof mod.matchesPage === 'function' ? mod.matchesPage() : true;
+        const info = TOOL_INFO[mod.id] || {};
+        const panelId = 'module-info-' + mod.id;
+        const existing = document.getElementById('twx-window-' + panelId);
+        if (existing) {
+            existing.remove();
+        }
+
+        const description = twccInfoValue(info, 'description', 'HIER GEHÖRT DEINE BESCHREIBUNG REIN');
+        const instructions = twccInfoValue(info, 'instructions', 'HIER GEHÖRT DEINE ANLEITUNG REIN');
+        const tips = twccInfoValue(info, 'tips', 'HIER GEHÖREN DEINE TIPPS REIN');
+        const notes = twccInfoValue(info, 'notes', 'HIER GEHÖREN WICHTIGE HINWEISE REIN');
+
         const panel = ToolboxCore.Window.create({
-            id: 'module-info-' + mod.id,
+            id: panelId,
             title: 'ℹ ' + mod.name,
-            width: 430,
-            height: 330,
+            width: 620,
+            height: 590,
             content: `<div class="twx-info-box">
                 <h3 style="margin-top:0;">${escapeHtml(mod.icon || '🧩')} ${escapeHtml(mod.name)}</h3>
-                <p>${escapeHtml(mod.description || 'Keine Beschreibung vorhanden.')}</p>
-                <div><span class="twx-pill">Version ${escapeHtml(mod.version || '-')}</span><span class="twx-pill">${escapeHtml(mod.source || 'unknown')}</span><span class="twx-pill">${pageOk ? 'auf dieser Seite verfügbar' : 'hier nicht geladen'}</span></div>
-                <hr>
-                <b>Status</b><br>
-                Global: ${state.globalEnabled ? 'EIN' : 'AUS'}<br>
-                Tab-Modus: ${state.tabMode}<br>
-                Effektiv: ${state.effective ? 'aktiv' : 'aus'}<br><br>
-                <b>Autor</b><br>${escapeHtml(mod.author || '-')}<br><br>
-                <b>Kategorie</b><br>${escapeHtml(mod.categoryName || mod.category || 'Sonstiges')}<br><br>
-                ${mod.scriptUrl ? '<b>Typ</b><br>Externes Modul<br>' : ''}
-                <button class="twx-btn" id="twx-info-settings-${mod.id}">⚙ Einstellungen öffnen</button>
+
+                <div class="twcc-info-section">
+                    <h4>📌 Beschreibung</h4>
+                    <div class="twcc-info-text">${escapeHtml(description)}</div>
+                </div>
+
+                <div class="twcc-info-section">
+                    <h4>📖 Anleitung</h4>
+                    <div class="twcc-info-text">${escapeHtml(instructions)}</div>
+                </div>
+
+                <div class="twcc-info-section">
+                    <h4>💡 Tipps</h4>
+                    <div class="twcc-info-text">${escapeHtml(tips)}</div>
+                </div>
+
+                <div class="twcc-info-section">
+                    <h4>⚠ Wichtige Hinweise</h4>
+                    <div class="twcc-info-text">${escapeHtml(notes)}</div>
+                </div>
+
+                <div class="ao-actions">
+                    <button class="twx-btn" id="twx-info-settings-${escapeHtml(mod.id)}">⚙ Einstellungen öffnen</button>
+                </div>
             </div>`
         });
+
+        ToolboxCore.Window.toggle(panelId, true);
         const btn = document.getElementById('twx-info-settings-' + mod.id);
         if (btn) btn.addEventListener('click', () => mod.openSettings());
         return panel;
     }
+
+    // Öffentliche Helferfunktion: TWCC.showInfo('farmGodExternal')
+    function showInfo(moduleId) {
+        const mod = Modules[String(moduleId || '')];
+        if (!mod) {
+            ToolboxCore.Notify.warning('Keine Info für dieses Modul gefunden.');
+            return null;
+        }
+        return createModuleInfoPanel(mod);
+    }
+
+    win.TWCC = Object.assign(win.TWCC || {}, {
+        showInfo,
+        ToolInfo: TOOL_INFO
+    });
 
     const BotGuard = (function () {
         let interval = null;
