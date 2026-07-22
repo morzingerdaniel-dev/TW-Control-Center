@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TWCC Angriffsplaner
 // @namespace    TWCC
-// @version      1.1.9
+// @version      1.1.11
 // @description  Angriffsplaner mit versteckter Hotkey-Automatik, Übergabe-Export, Vorlagen-Mapping und Sprachwarnung
 // @author       Daniel 
 // @match        https://*.die-staemme.de/game.php*
@@ -169,9 +169,11 @@
         toast(`Automatik ${isAutomationEnabled() ? 'AN' : 'AUS'} · offen ${stats.open} · erledigt ${stats.done}`);
     }
 
-    const AUDIO_TAB_ID = sessionStorage.getItem('TWCC_DSU_AUDIO_TAB_ID') ||
-        ('tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
-    sessionStorage.setItem('TWCC_DSU_AUDIO_TAB_ID', AUDIO_TAB_ID);
+    // Wichtig: sessionStorage wird bei window.open() in den neuen Tab kopiert.
+    // Eine dort gespeicherte ID wäre deshalb in Haupt-, Truppen- und Confirm-Tab identisch.
+    // Jeder Dokumentkontext braucht zwingend eine eigene ID, damit nur der per Hotkey
+    // freigeschaltete Haupt-Tab die Audioausgabe übernimmt.
+    const AUDIO_TAB_ID = 'tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 
     let AUDIO_CONTEXT = null;
     let AUDIO_HOST_HEARTBEAT = null;
@@ -216,7 +218,7 @@
         writeAudioHost();
         if (AUDIO_HOST_HEARTBEAT) clearInterval(AUDIO_HOST_HEARTBEAT);
         AUDIO_HOST_HEARTBEAT = setInterval(() => {
-            if (isAutomationEnabled()) writeAudioHost();
+            writeAudioHost();
         }, 2000);
         startSendTimeWarningWatchdog();
         startAudioEventPoll();
@@ -366,51 +368,94 @@
         }, 150);
     }
 
+    function getWarningFiredMap() {
+        const stored = loadJson(WARNING_FIRED_KEY, {});
+        // Abwärtskompatibilität zu älteren Versionen mit nur einem gespeicherten Angriff.
+        if (stored && stored.attackId) {
+            return { [stored.attackId]: { sendMs: stored.sendMs, firedAt: stored.firedAt } };
+        }
+        return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    }
+
     function clearWarningFiredForAttack(attackId) {
-        const fired = loadJson(WARNING_FIRED_KEY, null);
-        if (!attackId || fired?.attackId === attackId) localStorage.removeItem(WARNING_FIRED_KEY);
+        if (!attackId) {
+            localStorage.removeItem(WARNING_FIRED_KEY);
+            return;
+        }
+        const fired = getWarningFiredMap();
+        if (Object.prototype.hasOwnProperty.call(fired, attackId)) {
+            delete fired[attackId];
+            saveJson(WARNING_FIRED_KEY, fired);
+        }
     }
 
     function hasWarningFired(attackId) {
-        const fired = loadJson(WARNING_FIRED_KEY, null);
-        return !!fired && fired.attackId === attackId;
+        return !!attackId && Object.prototype.hasOwnProperty.call(getWarningFiredMap(), attackId);
     }
 
     function markWarningFired(attackId, sendMs) {
-        saveJson(WARNING_FIRED_KEY, { attackId, sendMs, firedAt: Date.now() });
+        if (!attackId) return;
+        const fired = getWarningFiredMap();
+        fired[attackId] = { sendMs, firedAt: Date.now() };
+        saveJson(WARNING_FIRED_KEY, fired);
+    }
+
+    function isWarningCandidate(attack) {
+        if (!attack || !attack.ok || !attack.id || !attack.send) return false;
+        return !['submitted', 'submitted_test', 'done', 'expired', 'failed', 'error'].includes(String(attack.status || 'open'));
     }
 
     function checkWarningBySendTime() {
-        if (!isAutomationEnabled()) return;
         if (!isCurrentAudioHost()) return;
-
-        const active = loadJson(ACTIVE_KEY, null);
-        if (!active?.id || !active.send || hasWarningFired(active.id)) return;
-
-        const timing = getSendTimingInfo(active.send);
-        if (!timing) return;
 
         const settings = getSoundSettings();
         if (!settings.enabled) return;
 
         const warningMs = Math.max(0, Number(settings.secondsBefore) || 0) * 1000;
-        const sendMs = timing.targetMs; // ausdrücklich die importierte Abschickzeit, ohne Klick-Offset
-        const remaining = sendMs - getCurrentServerMs();
+        const nowServer = getCurrentServerMs();
+        const plan = loadJson(PLAN_KEY, []);
+        const active = loadJson(ACTIVE_KEY, null);
 
-        // Der Haupt-Tab überwacht die Abschickzeit unabhängig von Phase 1/2.
-        // Ein großzügiges Nachholfenster fängt gedrosselte Hintergrund-Timer ab.
-        if (remaining <= warningMs && remaining > -2500) {
-            markWarningFired(active.id, sendMs);
-            playWarningSoundLocal(settings);
-            toast(`Vorwarnung: Abschickzeit in ${Math.max(0, Math.ceil(remaining / 1000))} Sekunden`);
-            log('Warnung nach Abschickzeit ausgelöst', { id: active.id, send: active.send, remaining, warningMs });
-        }
+        // Auch ein gerade aktiver Angriff wird berücksichtigt, falls sein Planstatus bereits geändert wurde.
+        const candidates = [...plan];
+        if (active?.id && !candidates.some(item => item?.id === active.id)) candidates.push(active);
+
+        candidates
+            .filter(isWarningCandidate)
+            .map(attack => ({ attack, timing: getSendTimingInfo(attack.send) }))
+            .filter(item => item.timing && !hasWarningFired(item.attack.id))
+            .sort((a, b) => a.timing.targetMs - b.timing.targetMs)
+            .forEach(({ attack, timing }) => {
+                const sendMs = timing.targetMs; // immer die importierte Abschickzeit, ohne Klick-Offset
+                const remaining = sendMs - nowServer;
+                if (remaining <= warningMs && remaining > -5000) {
+                    markWarningFired(attack.id, sendMs);
+                    playWarningSoundLocal(settings);
+                    toast(`Vorwarnung: Abschickzeit in ${Math.max(0, Math.ceil(remaining / 1000))} Sekunden`);
+                    log('Warnung nach Abschickzeit ausgelöst', { id: attack.id, send: attack.send, remaining, warningMs });
+                }
+            });
     }
 
     function startSendTimeWarningWatchdog() {
         if (AUDIO_SENDTIME_WATCHDOG) clearInterval(AUDIO_SENDTIME_WATCHDOG);
         AUDIO_SENDTIME_WATCHDOG = setInterval(checkWarningBySendTime, 200);
         checkWarningBySendTime();
+    }
+
+    function installAudioHostGesture() {
+        if (document._twccAudioHostGestureInstalled) return;
+        document._twccAudioHostGestureInstalled = true;
+
+        const activate = event => {
+            if (event && event.isTrusted === false) return;
+            claimAudioHost();
+        };
+
+        // Ein normaler Klick oder Tastendruck reicht zur Browser-Freigabe. Das ist
+        // vollständig unabhängig davon, ob die versteckte Automatik aktiviert ist.
+        document.addEventListener('pointerdown', activate, true);
+        document.addEventListener('keydown', activate, true);
     }
 
     function installHiddenHotkeys() {
@@ -1498,7 +1543,7 @@
             };
         }
 
-        document.getElementById('twcc-dsu-sound-test').onclick = () => playWarningSound(collectSoundSettings());
+        document.getElementById('twcc-dsu-sound-test').onclick = () => { claimAudioHost(); playWarningSoundLocal(collectSoundSettings()); };
         document.getElementById('twcc-dsu-settings-save').onclick = () => {
             const nextMap = {};
             document.querySelectorAll('.twcc-dsu-template-input').forEach(input => {
@@ -1575,6 +1620,7 @@
             localStorage.removeItem(AUTOMATION_ENABLED_KEY);
             localStorage.removeItem(TEMPLATE_MAP_KEY);
             localStorage.removeItem(SOUND_SETTINGS_KEY);
+            localStorage.removeItem(WARNING_FIRED_KEY);
             currentPlan = [];
             document.getElementById('twcc-dsu-status').textContent = 'gelöscht';
             document.getElementById('twcc-dsu-preview').innerHTML = '';
@@ -1582,6 +1628,7 @@
 
         document.getElementById('twcc-dsu-parse').onclick = () => {
             currentPlan = parseDsuText(textarea.value);
+            clearWarningFiredForAttack();
             saveJson(PLAN_KEY, currentPlan);
             localStorage.setItem(RAW_KEY, textarea.value);
             refreshPreview();
@@ -1589,6 +1636,7 @@
 
         document.getElementById('twcc-dsu-save').onclick = () => {
             if (!currentPlan.length) currentPlan = parseDsuText(textarea.value);
+            clearWarningFiredForAttack();
             saveJson(PLAN_KEY, currentPlan);
             localStorage.setItem(RAW_KEY, textarea.value);
             alert(currentPlan.filter(p => p.ok).length + ' Angriffe gespeichert.');
@@ -2287,7 +2335,9 @@
 
     function init() {
         installHiddenHotkeys();
-        if (isAutomationEnabled() && isCurrentAudioHost()) startSendTimeWarningWatchdog();
+        installAudioHostGesture();
+        startSendTimeWarningWatchdog();
+        startAudioEventPoll();
         const navigation = performance.getEntriesByType?.('navigation')?.[0];
         if (navigation?.type === 'reload' && !loadJson(ACTIVE_KEY, null)) {
             localStorage.setItem(AUTOMATION_ENABLED_KEY, '0');
